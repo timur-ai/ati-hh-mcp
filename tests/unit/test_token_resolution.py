@@ -10,14 +10,21 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from ati_hh_mcp import request_context
-from ati_hh_mcp.hh.auth import TokenProvider, resolve_hh_token
+from ati_hh_mcp.hh.auth import HHOAuth, TokenProvider, resolve_hh_token
 from ati_hh_mcp.hh.errors import HHError
 from ati_hh_mcp.hh.token_store import TokenStore, profile_key_from_api_key
 
 from ..conftest import make_config
+
+
+def _oauth_config() -> object:
+    return make_config(
+        client_id="CID", client_secret="SECRET", redirect_uri="https://example.test/cb"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -129,3 +136,98 @@ async def test_token_provider_no_token_error_hint() -> None:
         await provider.ensure_fresh(do_request)
     assert excinfo.value.code == "no_hh_token"
     assert "X-HH-Token" in (excinfo.value.hint or "")
+
+
+# --- ветки обмена/обновления токена (HHOAuth) --------------------------------
+
+
+async def test_exchange_rejects_non_dict_token_response() -> None:
+    """Ответ /token – не JSON-объект: oauth_bad_response."""
+    store = TokenStore()
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[1, 2]))
+    oauth = HHOAuth(_oauth_config(), store, transport=transport)  # type: ignore[arg-type]
+    with pytest.raises(HHError) as excinfo:
+        await oauth.exchange_code("CODE")
+    assert excinfo.value.code == "oauth_bad_response"
+
+
+async def test_exchange_error_status_with_non_json_body() -> None:
+    """/token ответил 400 с не-JSON телом – HHError по статусу."""
+    store = TokenStore()
+    transport = httpx.MockTransport(lambda request: httpx.Response(400, text="bad"))
+    oauth = HHOAuth(_oauth_config(), store, transport=transport)  # type: ignore[arg-type]
+    with pytest.raises(HHError) as excinfo:
+        await oauth.exchange_code("CODE")
+    assert excinfo.value.code == "bad_request"
+
+
+async def test_exchange_requires_access_token_in_response() -> None:
+    store = TokenStore()
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"refresh_token": "RT"})
+    )
+    oauth = HHOAuth(_oauth_config(), store, transport=transport)  # type: ignore[arg-type]
+    with pytest.raises(HHError, match="access_token"):
+        await oauth.exchange_code("CODE")
+
+
+async def test_exchange_drops_non_string_refresh_token() -> None:
+    """refresh_token не-строкового типа отбрасывается (None)."""
+    store = TokenStore()
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, json={"access_token": "AT", "refresh_token": 123}
+        )
+    )
+    oauth = HHOAuth(_oauth_config(), store, transport=transport)  # type: ignore[arg-type]
+    stored = await oauth.exchange_code("CODE")
+    assert stored.access_token == "AT"
+    assert stored.refresh_token is None
+
+
+# --- ensure_fresh: неудачный и бесполезный refresh ---------------------------
+
+
+async def test_ensure_fresh_refresh_failure_raises_original_401() -> None:
+    """Refresh не удался – наружу исходная ошибка unauthorized."""
+    store = TokenStore()
+    store.save_tokens("default", "AT-old", "RT-old")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/token"
+        return httpx.Response(400, json={"errors": [{"type": "oauth"}]})
+
+    provider = TokenProvider(make_config(), store, transport=httpx.MockTransport(handler))
+    calls: list[str] = []
+
+    async def do_request(token: str) -> str:
+        calls.append(token)
+        raise HHError("unauthorized", "401 от hh.ru")
+
+    with pytest.raises(HHError) as excinfo:
+        await provider.ensure_fresh(do_request)
+    assert excinfo.value.code == "unauthorized"
+    assert calls == ["AT-old"]
+
+
+async def test_ensure_fresh_same_token_after_refresh_raises_original() -> None:
+    """Refresh вернул тот же токен – повтор бессмыслен, исходная 401."""
+    store = TokenStore()
+    store.save_tokens("default", "AT-same", "RT-old")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"access_token": "AT-same", "refresh_token": "RT-new"}
+        )
+
+    provider = TokenProvider(make_config(), store, transport=httpx.MockTransport(handler))
+    calls: list[str] = []
+
+    async def do_request(token: str) -> str:
+        calls.append(token)
+        raise HHError("unauthorized", "401 от hh.ru")
+
+    with pytest.raises(HHError) as excinfo:
+        await provider.ensure_fresh(do_request)
+    assert excinfo.value.code == "unauthorized"
+    assert calls == ["AT-same"]

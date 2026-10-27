@@ -1,0 +1,62 @@
+site_name: ati-hh-mcp
+site_description: >-
+  Public MCP server for the hh.ru API: all 135 OpenAPI operations as
+  grouped, switchable toolsets; stdio and HTTP transports.
+site_url: https://timur-ai.github.io/ati-hh-mcp/
+repo_url: https://github.com/timur-ai/ati-hh-mcp
+repo_name: timur-ai/ati-hh-mcp
+edit_uri: edit/main/docs/
+strict: true
+
+# Тяжёлые артефакты не копируются в сайт: справочник инструментов
+# генерируется (docs/tools), фикстуры и вендорённая спека остаются
+# только в репозитории.
+exclude_docs: |
+  fixtures/*
+  openapi/*
+
+theme:
+  name: material
+  language: en
+  palette:
+    scheme: default
+    primary: indigo
+    accent: indigo
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Tools:
+      - Overview: tools/index.md
+      - auth: tools/auth.md
+      - dictionaries: tools/dictionaries.md
+      - suggests: tools/suggests.md
+      - vacancies: tools/vacancies.md
+      - negotiations: tools/negotiations.md
+      - chats: tools/chats.md
+      - resumes: tools/resumes.md
+      - employer_vacancies: tools/employer_vacancies.md
+      - employer_negotiations: tools/employer_negotiations.md
+      - employer_resumes: tools/employer_resumes.md
+      - employer_managers: tools/employer_managers.md
+      - employer_misc: tools/employer_misc.md
+      - extended: tools/extended.md
+  - Architecture: architecture.md
+  - Configuration: configuration.md
+  - Deployment: deployment.md
+  - Development: development.md
+  - Limitations: limitations.md
+  - ADR:
+      - "Z1: FastMCP major choice": adr/Z1-fastmcp-major.md

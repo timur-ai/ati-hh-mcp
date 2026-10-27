@@ -15,8 +15,9 @@ import httpx
 import pytest
 from fastmcp import Client, FastMCP
 
+from ati_hh_mcp import request_context
 from ati_hh_mcp.hh.client import HHClient
-from ati_hh_mcp.hh.token_store import TokenStore
+from ati_hh_mcp.hh.token_store import TokenStore, profile_key_from_api_key
 from ati_hh_mcp.registry import REGISTRY
 from ati_hh_mcp.toolsets import auth_tools
 
@@ -240,6 +241,20 @@ async def test_status_before_exchange(client: Client) -> None:
         "profile": "default",
         "obtained_at": None,
     }
+
+
+async def test_status_shows_request_profile(client: Client, store: TokenStore) -> None:
+    """HTTP-режим: auth_status показывает профиль запроса (sha256 ключа)."""
+    profile = profile_key_from_api_key("key-a")
+    store.save_tokens(profile, "AT-x", "RT-x")
+    try:
+        request_context.set_request_auth(hh_token=None, profile=profile)
+        status = await client.call_tool("auth_status", {})
+    finally:
+        request_context.set_request_auth(hh_token=None, profile=None)
+    assert status.data["profile"] == profile
+    assert status.data["has_tokens"] is True
+    assert status.data["obtained_at"] == store.get_tokens(profile).obtained_at
 
 
 # ----------------------------------------------------------------------

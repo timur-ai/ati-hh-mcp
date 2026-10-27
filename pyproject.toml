@@ -26,6 +26,8 @@ dev = [
     "mypy>=1.11",
     "jsonschema>=4.23",
     "pyyaml>=6.0.3",
+    "mkdocs-material>=9.7.7",
+    "mkdocs-autorefs>=1.4.4",
 ]
 
 [build-system]
@@ -55,3 +57,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Дефолтный прогон исключает живые обращения к api.hh.ru (маркер live):
+# они запускаются явно (uv run pytest -m live) или CI-джобой live.
+addopts = "-m 'not live'"
+markers = [
+    "live: живые read-only вызовы к api.hh.ru (запуск: pytest -m live)",
+]

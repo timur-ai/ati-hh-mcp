@@ -29,6 +29,7 @@ from ..hh.client import HHClient
 from ..hh.errors import HHError
 from ..hh.token_store import DEFAULT_PROFILE, TokenStore
 from ..registry import REGISTRY, ToolEntry
+from ..request_context import effective_profile
 
 TOOLSET_NAME = "auth"
 
@@ -175,16 +176,18 @@ def register(
         """Show OAuth configuration and stored token status.
 
         Reports whether OAuth client credentials are configured, whether
-        a token pair is stored for the current profile, and when it was
+        a token pair is stored for the current profile (the request
+        profile in HTTP mode, ``default`` otherwise), and when it was
         obtained.
         """
-        tokens = effective_store.get_tokens(DEFAULT_PROFILE)
+        profile = effective_profile()
+        tokens = effective_store.get_tokens(profile)
         return {
             "configured": bool(
                 effective_config.client_id and effective_config.client_secret
             ),
             "has_tokens": tokens is not None,
-            "profile": DEFAULT_PROFILE,
+            "profile": profile,
             "obtained_at": tokens.obtained_at if tokens is not None else None,
         }
 

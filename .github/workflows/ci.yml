@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Живые read-only пробы api.hh.ru: еженедельно, понедельник 06:10 UTC.
+    - cron: "10 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -33,8 +37,92 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src
 
-      - name: Tests (pytest)
-        run: uv run pytest -q
+      - name: Tests with coverage (>= 95%)
+        run: uv run pytest --cov=ati_hh_mcp --cov-report=term --cov-fail-under=95 -q
+
+  # Живые read-only пробы api.hh.ru (M9): только ручной запуск и еженедельный
+  # cron (не на каждый push – беречь квоты живого API). Без секрета
+  # HH_LIVE_TOKEN авторизованные тесты пропускаются скипами.
+  live:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Live read-only tests
+        env:
+          HH_LIVE_TOKEN: ${{ secrets.HH_LIVE_TOKEN }}
+        run: uv run pytest -m live tests/integration_live -q -rs
+
+  # Проверка пути быстрого старта из README (M9): uvx из git по SHA –
+  # версия и мини-обмен initialize/tools/list по stdio. Корректна после
+  # публикации репозитория (M10); до этого job просто не найдёт remote.
+  install-from-git:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install from git and check version
+        run: |
+          SHA=$(git rev-parse HEAD)
+          uvx --from "git+https://github.com/timur-ai/ati-hh-mcp@${SHA}" ati-hh-mcp --version
+
+      - name: MCP initialize + tools/list via uvx (stdio)
+        run: |
+          SHA=$(git rev-parse HEAD)
+          SHA="$SHA" python3 - <<'EOF'
+          import json, os, subprocess
+
+          cmd = [
+              "uvx", "--from",
+              f"git+https://github.com/timur-ai/ati-hh-mcp@{os.environ['SHA']}",
+              "ati-hh-mcp", "serve", "--transport", "stdio",
+          ]
+          proc = subprocess.Popen(
+              cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+              stderr=subprocess.DEVNULL, text=True,
+          )
+          requests = [
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                  "protocolVersion": "2025-03-26", "capabilities": {},
+                  "clientInfo": {"name": "ci-install-check", "version": "0"}}},
+              {"jsonrpc": "2.0", "method": "notifications/initialized"},
+              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+          ]
+          for request in requests:
+              proc.stdin.write(json.dumps(request) + "\n")
+          proc.stdin.flush()
+
+          replies = []
+          for _ in range(2):
+              line = proc.stdout.readline()
+              if not line:
+                  break
+              replies.append(json.loads(line))
+          proc.terminate()
+
+          by_id = {r.get("id"): r for r in replies}
+          tools = by_id[2]["result"]["tools"]
+          names = {t["name"] for t in tools}
+          assert "dict_dictionaries" in names, sorted(names)[:10]
+          assert not any(name.startswith("employer_") for name in names)
+          print(f"install-from-git MCP check OK: {len(names)} tools")
+          EOF
 
   # Docker smoke (M7): сборка образа из исходников, /health, tools/list
   # по HTTP с авторизацией MCP_API_KEYS, проверка 401 без ключа.
