@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 # Наборы инструментов, включённые по умолчанию (план, «Группировка наборов»).
 DEFAULT_TOOLSETS: tuple[str, ...] = (
@@ -18,6 +18,9 @@ DEFAULT_TOOLSETS: tuple[str, ...] = (
 )
 
 DEFAULT_API_BASE = "https://api.hh.ru"
+
+# Лимит запросов к API hh.ru в минуту (троттлинг, этап M2).
+DEFAULT_RATE_LIMIT = 25
 
 # Требование hh.ru к User-Agent: владелец развёртывания должен указать свой
 # контактный email (HH_UA_EMAIL); значение ниже – только явный placeholder.
@@ -39,6 +42,16 @@ def _clean(raw: str | None) -> str | None:
     return value or None
 
 
+def _parse_int(raw: str | None, default: int) -> int:
+    """Разбирает целое из env; некорректное значение откатывается к дефолту."""
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class Config:
     """Иммутабельная конфигурация, собранная из окружения."""
@@ -51,6 +64,7 @@ class Config:
     client_secret: str | None
     redirect_uri: str | None
     api_keys: tuple[str, ...]
+    rate_limit: int = field(default=DEFAULT_RATE_LIMIT)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Config:
@@ -60,6 +74,10 @@ class Config:
         toolsets_raw = _clean(source.get("HH_TOOLSETS"))
         api_base = _clean(source.get("HH_API_BASE")) or DEFAULT_API_BASE
         ua_email = _clean(source.get("HH_UA_EMAIL")) or DEFAULT_UA_EMAIL
+        rate_limit = _parse_int(_clean(source.get("HH_RATE_LIMIT")), DEFAULT_RATE_LIMIT)
+        if rate_limit <= 0:
+            # Нулевой или отрицательный лимит заблокировал бы все запросы.
+            rate_limit = DEFAULT_RATE_LIMIT
 
         return cls(
             token=_clean(source.get("HH_TOKEN")),
@@ -70,6 +88,7 @@ class Config:
             client_secret=_clean(source.get("HH_CLIENT_SECRET")),
             redirect_uri=_clean(source.get("HH_REDIRECT_URI")),
             api_keys=_split_csv(source.get("MCP_API_KEYS")),
+            rate_limit=rate_limit,
         )
 
     def with_toolsets(self, toolsets: tuple[str, ...]) -> Config:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 
 import pytest
 from pydantic import BaseModel
@@ -132,6 +133,125 @@ async def test_mutation_requires_confirm(mock_hh: MockHH) -> None:
     # С confirm – запрос уходит.
     await tool(text="x", confirm=True)
     assert mock_hh.requests[-1].method == "POST"
+    assert calls == ["created"]
+
+
+# --- query_fields: разделение query/тело для мутаций (волна 3) -------------
+
+
+class _MutationWithQueryParams(BaseModel):
+    """Модель мутации с query-параметром (ignore_duplicates) и телом."""
+
+    ignore_duplicates: bool | None = None
+    name: str | None = None
+    employer_id: str | None = None
+
+
+async def test_post_query_fields_split_query_and_body(mock_hh: MockHH) -> None:
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="POST /query_split_demo",
+        name="unit_query_split_post",
+        summary="Query split demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_MutationWithQueryParams,
+        query_fields={"ignore_duplicates"},
+    )
+    await tool(
+        ignore_duplicates=True, name="Backend", employer_id="777", confirm=True
+    )
+    request = mock_hh.requests[-1]
+    assert request.method == "POST"
+    # query_fields уходит в query-строку.
+    assert dict(request.url.params) == {"ignore_duplicates": "true"}
+    # Остальное – в JSON-тело.
+    assert json.loads(request.read()) == {"name": "Backend", "employer_id": "777"}
+
+
+async def test_put_query_fields_with_path_param(mock_hh: MockHH) -> None:
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="PUT /query_put_demo/{id}",
+        name="unit_query_split_put",
+        summary="Query split put demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_MutationWithQueryParams,
+        query_fields={"ignore_duplicates"},
+    )
+    await tool(id="42", ignore_duplicates=False, name="X", confirm=True)
+    request = mock_hh.requests[-1]
+    assert request.url.path == "/query_put_demo/42"  # path-параметр подставлен.
+    assert dict(request.url.params) == {"ignore_duplicates": "false"}
+    assert json.loads(request.read()) == {"name": "X"}
+
+
+async def test_post_query_fields_only_query_sends_no_body(mock_hh: MockHH) -> None:
+    """Все заданные поля ушли в query – тело не отправляется вовсе."""
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="POST /query_only_demo",
+        name="unit_query_only_post",
+        summary="Query only demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_MutationWithQueryParams,
+        query_fields={"ignore_duplicates", "employer_id"},
+    )
+    await tool(ignore_duplicates=True, employer_id="7", confirm=True)
+    request = mock_hh.requests[-1]
+    assert dict(request.url.params) == {"ignore_duplicates": "true", "employer_id": "7"}
+    assert request.read() == b""  # пустое тело не кодируется как {}
+
+
+async def test_post_without_query_fields_keeps_body_only(mock_hh: MockHH) -> None:
+    """Без query_fields поведение прежнее: всё в теле, query пуст."""
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="POST /body_only_demo",
+        name="unit_body_only_post",
+        summary="Body only demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_MutationWithQueryParams,
+    )
+    await tool(name="N", ignore_duplicates=True, confirm=True)
+    request = mock_hh.requests[-1]
+    assert dict(request.url.params) == {}
+    assert json.loads(request.read()) == {"name": "N", "ignore_duplicates": True}
+
+
+def test_query_fields_rejected_for_get() -> None:
+    with pytest.raises(ValueError, match="POST/PUT"):
+        toolkit.make_tool(
+            operation_id="GET /bad_query_demo",
+            name="unit_bad_query_get",
+            summary="Bad query fields",
+            toolset="unit_test",
+            requires_auth=False,
+            is_mutation=False,
+            param_model=_MutationWithQueryParams,
+            query_fields={"name"},
+        )
+
+
+def test_query_fields_validated_against_model() -> None:
+    with pytest.raises(ValueError, match="вне модели"):
+        toolkit.make_tool(
+            operation_id="POST /unknown_field_demo",
+            name="unit_unknown_query_field",
+            summary="Unknown query field",
+            toolset="unit_test",
+            requires_auth=True,
+            is_mutation=True,
+            param_model=_MutationWithQueryParams,
+            query_fields={"no_such_field"},
+        )
 
 
 def test_mutation_forbids_confirm_field_in_model() -> None:

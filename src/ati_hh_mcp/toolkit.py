@@ -4,13 +4,19 @@
 pydantic-модель параметров превращается в плоские типизированные
 параметры инструмента, мутации получают обязательный ``confirm``,
 вызов направляется в ``HHClient`` по операции из реестра.
+
+Path-параметры операции (``/vacancies/{vacancy_id}``) подставляются в путь
+и исключаются из query; значения-модели (двухуровневая схема тяжёлых
+операций) разворачиваются в плоские query-параметры.
 """
 
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import quote
 
 from pydantic import BaseModel
 
@@ -48,6 +54,54 @@ def _parse_operation_id(operation_id: str) -> tuple[str, str]:
     return method, path
 
 
+def flatten_params(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Разворачивает значения-модели в плоские параметры запроса.
+
+    Вложенные pydantic-модели (двухуровневая схема) превращаются в их поля
+    (только заданные); None-значения верхнего уровня отбрасываются.
+    Словарь обрабатывается так же, как модель (защита от сырых значений).
+    """
+    flat: dict[str, Any] = {}
+    for key, value in kwargs.items():
+        if value is None:
+            continue
+        if isinstance(value, BaseModel):
+            flat.update(value.model_dump(exclude_none=True))
+        elif isinstance(value, dict):
+            flat.update({k: v for k, v in value.items() if v is not None})
+        else:
+            flat[key] = value
+    return flat
+
+
+def render_path(path: str, params: dict[str, Any]) -> str:
+    """Подставляет path-параметры в шаблон пути, изымая их из params.
+
+    ``render_path('/v/{id}', {'id': 42}) -> '/v/42'``; значения кодируются
+    для URL. Словарь params изменяется на месте (параметры изымаются).
+    """
+    rendered = path
+    for name in re.findall(r"\{(\w+)\}", path):
+        if name not in params:
+            raise ValueError(
+                f"для пути {path!r} не передан path-параметр {name!r}"
+            )
+        rendered = rendered.replace("{" + name + "}", quote(str(params.pop(name)), safe=""))
+    return rendered
+
+
+def _split_query_body(
+    data: dict[str, Any],
+    query_fields: frozenset[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Делит параметры POST/PUT на query-часть и JSON-тело."""
+    if not query_fields:
+        return {}, data
+    query = {k: v for k, v in data.items() if k in query_fields}
+    body = {k: v for k, v in data.items() if k not in query_fields}
+    return query, body
+
+
 def make_tool(
     *,
     operation_id: str,
@@ -58,11 +112,17 @@ def make_tool(
     is_mutation: bool,
     param_model: type[BaseModel] | None = None,
     docstring_en: str | None = None,
+    query_fields: frozenset[str] | set[str] | None = None,
 ) -> Callable[..., Awaitable[Any]]:
     """Создаёт функцию-инструмент и регистрирует её в реестре.
 
     Возвращаемая функция регистрируется на сервере как ``mcp.tool(fn)``;
     параметры из ``param_model`` раскрываются на верхний уровень схемы.
+
+    ``query_fields`` – имена полей ``param_model``, которые для POST/PUT
+    уходят в query-строку, а не в тело (мутации hh.ru с query-параметрами:
+    ``ignore_duplicates`` у POST /vacancies, ``successor_id`` у DELETE
+    менеджеров и т.п.). Для GET/DELETE недопустим (там всё и так query).
     """
     method, path = _parse_operation_id(operation_id)
 
@@ -71,6 +131,21 @@ def make_tool(
             f"модель параметров {param_model.__name__} не должна объявлять поле "
             "'confirm': для мутаций оно добавляется автоматически"
         )
+
+    effective_query_fields = frozenset(query_fields) if query_fields else frozenset()
+    if effective_query_fields:
+        if method not in ("POST", "PUT"):
+            raise ValueError(
+                f"query_fields применим только к POST/PUT; {method} и так "
+                "отправляет все параметры в query-строку"
+            )
+        if param_model is not None:
+            unknown = effective_query_fields - set(param_model.model_fields)
+            if unknown:
+                raise ValueError(
+                    f"query_fields содержит поля вне модели {param_model.__name__}: "
+                    f"{sorted(unknown)}"
+                )
 
     REGISTRY.register(
         ToolEntry(
@@ -89,17 +164,20 @@ def make_tool(
                 "Подтвердите операцию: передайте confirm=True.",
             )
         kwargs.pop("confirm", None)
-        data: dict[str, Any] = {k: v for k, v in kwargs.items() if v is not None}
+        data = flatten_params(kwargs)
+        request_path = render_path(path, data)
         client = _client_factory()
         try:
             if method == "GET":
-                return await client.get(path, params=data)
+                return await client.get(request_path, params=data)
             if method == "DELETE":
-                return await client.delete(path, params=data)
+                return await client.delete(request_path, params=data)
             if method == "POST":
-                return await client.post(path, json=data)
+                query, body = _split_query_body(data, effective_query_fields)
+                return await client.post(request_path, params=query, json=body or None)
             if method == "PUT":
-                return await client.put(path, json=data)
+                query, body = _split_query_body(data, effective_query_fields)
+                return await client.put(request_path, params=query, json=body or None)
             raise ValueError(f"неподдерживаемый HTTP-метод: {method}")
         finally:
             await client.aclose()
@@ -113,7 +191,9 @@ def make_tool(
                 inspect.Parameter(
                     field_name,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    default=field.default,
+                    default=inspect.Parameter.empty
+                    if field.is_required()
+                    else field.default,
                     annotation=field.annotation,
                 )
             )

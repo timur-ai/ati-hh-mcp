@@ -14,7 +14,9 @@ import select
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
@@ -28,6 +30,9 @@ from ..conftest import MockHH, make_config
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DICT_TOOLS = {"dict_dictionaries", "dict_areas", "dict_metro"}
+
+# Временный каталог для SQLite-базы токенов подпроцессов (не HOME).
+_TMP_STORE_DIR = Path(tempfile.mkdtemp(prefix="ati-hh-mcp-e2e-"))
 
 
 async def test_inmemory_client_lists_and_calls_tools(mock_hh: MockHH) -> None:
@@ -55,13 +60,22 @@ def _server_command() -> list[str]:
     return [sys.executable, "-m", "ati_hh_mcp", "serve", "--transport", "stdio"]
 
 
-def _clean_env() -> dict[str, str]:
-    """Окружение без переменных проекта (детерминированный запуск)."""
-    return {
+def _clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Окружение без переменных проекта (детерминированный запуск).
+
+    ``extra`` добавляется поверх (например, HH_TOOLSETS=extended);
+    HH_TOKEN_STORE всегда уводится во временный каталог, чтобы запуск
+    сервера с auth-набором не создавал базу токенов в HOME.
+    """
+    env = {
         k: v
         for k, v in os.environ.items()
         if not k.startswith(("HH_", "MCP_"))
     }
+    env["HH_TOKEN_STORE"] = str(_TMP_STORE_DIR / "tokens.sqlite3")
+    if extra:
+        env.update(extra)
+    return env
 
 
 async def test_subprocess_client_stdio_initialize_and_list() -> None:
@@ -154,3 +168,35 @@ def test_subprocess_stdout_contains_only_mcp_protocol() -> None:
         assert stdout_tail.strip() == "", (
             f"stdout после завершения содержит непротокольный вывод: {stdout_tail[:500]!r}"
         )
+
+
+async def _subprocess_tool_names(env_extra: dict[str, str] | None = None) -> set[str]:
+    """tools/list настоящего stdio-подпроцесса с заданным окружением."""
+    command = _server_command()
+    transport = StdioTransport(
+        command=command[0],
+        args=command[1:],
+        cwd=PROJECT_ROOT,
+        env=_clean_env(env_extra),
+    )
+    async with Client(transport) as client:
+        tools = await client.list_tools()
+    return {tool.name for tool in tools}
+
+
+async def test_subprocess_extended_toolset_visibility() -> None:
+    """HH_TOOLSETS управляет extended: по умолчанию скрыт, при включении есть.
+
+    HH_TOOLSETS полностью заменяет набор: чтобы auth остался alongside
+    extended, он указывается явно.
+    """
+    default_names = await _subprocess_tool_names()
+    assert "apply_to_vacancy" not in default_names  # extended выключен.
+    assert "auth_status" in default_names  # auth в наборах по умолчанию.
+
+    extended_names = await _subprocess_tool_names(
+        {"HH_TOOLSETS": "auth,extended,dictionaries"}
+    )
+    assert "apply_to_vacancy" in extended_names
+    assert "my_resumes" in extended_names
+    assert "auth_status" in extended_names  # auth_status присутствует всегда.

@@ -8,6 +8,17 @@ import httpx
 import pytest
 
 from ati_hh_mcp.config import Config
+from ati_hh_mcp.hh.client import reset_rate_limiter
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limiter() -> None:
+    """Свежее процессное ведро троттлинга на каждый тест.
+
+    Без сброса общий бакет (HH_RATE_LIMIT, по умолчанию 25/мин) истощается
+    по накоплению запросов соседних тестов и уводит прогон в реальные
+    ожидания."""
+    reset_rate_limiter()
 
 
 def make_config(**overrides: Any) -> Config:
