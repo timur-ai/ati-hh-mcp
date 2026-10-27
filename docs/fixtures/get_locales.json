@@ -1,0 +1,34 @@
+{
+  "operation": "GET /locales",
+  "url": "/locales",
+  "recorded_at": "2026-10-27T18:15:07+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": [
+    {
+      "id": "EN",
+      "name": "English",
+      "current": false
+    },
+    {
+      "id": "KG",
+      "name": "Кыргызча",
+      "current": false
+    },
+    {
+      "id": "KZ",
+      "name": "Қазақша",
+      "current": false
+    },
+    {
+      "id": "RU",
+      "name": "Русский",
+      "current": true
+    },
+    {
+      "id": "UZ",
+      "name": "О'zbek",
+      "current": false
+    }
+  ]
+}

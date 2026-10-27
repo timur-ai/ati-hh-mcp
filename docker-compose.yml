@@ -1,0 +1,39 @@
+# Пример многопользовательского развёртывания ati-hh-mcp (этап M7).
+#
+# Запуск: docker compose up --build
+# Клиенты подключаются к http://<host>:8080/mcp с заголовком
+# Authorization: Bearer <ключ из MCP_API_KEYS>.
+
+services:
+  ati-hh-mcp:
+    build: .
+    image: ati-hh-mcp:latest
+    restart: unless-stopped
+    environment:
+      # ОБЯЗАТЕЛЬНО в многопользовательском режиме: список API-ключей
+      # доступа к MCP-серверу через запятую. Каждый ключ получает свой
+      # изолированный OAuth-профиль hh.ru (sha256 ключа). Смените ключ!
+      MCP_API_KEYS: "change-me-strong-api-key"
+      # Контактный email владельца – требование hh.ru к User-Agent.
+      HH_UA_EMAIL: "owner@example.com"
+      # OAuth hh.ru (опционально; redirect_uri должен быть зарегистрирован
+      # в приложении на https://dev.hh.ru/admin и указывать на этот сервер,
+      # например http://<host>:8080/oauth/callback):
+      # HH_CLIENT_ID: "..."
+      # HH_CLIENT_SECRET: "..."
+      # HH_REDIRECT_URI: "http://localhost:8080/oauth/callback"
+      # Токены SQLite – на volume (персистентность между перезапусками).
+      HH_TOKEN_STORE: "/data/tokens.sqlite3"
+    ports:
+      - "8080:8080"
+    volumes:
+      - hh-tokens:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  hh-tokens:

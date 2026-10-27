@@ -1,0 +1,23 @@
+{
+  "operation": "GET /suggests/skill_set",
+  "url": "/suggests/skill_set?text=python",
+  "recorded_at": "2026-10-27T18:15:18+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "id": "665",
+        "text": "Iron Python"
+      },
+      {
+        "id": "1051",
+        "text": "Pl/Python"
+      },
+      {
+        "id": "1114",
+        "text": "Python"
+      }
+    ]
+  }
+}

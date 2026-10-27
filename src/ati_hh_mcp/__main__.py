@@ -1,14 +1,22 @@
-"""CLI: запуск MCP-сервера (stdio; HTTP – этап M7)."""
+"""CLI: запуск MCP-сервера (stdio и HTTP, этап M7).
+
+HTTP-режим: streamable-http (uvicorn внутри FastMCP), дефолты
+``--host 0.0.0.0 --port 8080``; маршруты ``/health`` и ``/oauth/callback``
+регистрируются ``server.build_http_server``, гейт ``MCP_API_KEYS`` –
+``server.RequestAuthMiddleware`` (пустой список ключей – открытый режим
+для личного запуска).
+"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
+
+from starlette.middleware import Middleware
 
 from . import __version__
 from .config import Config
-from .server import build_server
+from .server import RequestAuthMiddleware, build_http_server, build_server
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,8 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="stdio",
         help="Transport: stdio (default) or http",
     )
-    serve.add_argument("--host", default="127.0.0.1", help="HTTP listen host")
-    serve.add_argument("--port", type=int, default=8000, help="HTTP listen port")
+    serve.add_argument("--host", default="0.0.0.0", help="HTTP listen host (default 0.0.0.0)")
+    serve.add_argument("--port", type=int, default=8080, help="HTTP listen port (default 8080)")
     serve.add_argument(
         "--toolsets",
         default=None,
@@ -51,13 +59,17 @@ def main(argv: list[str] | None = None) -> int:
         config = config.with_toolsets(names)
 
     if args.transport == "http":
-        # Заглушка до этапа M7 (транспорты и Docker).
-        print(
-            "HTTP-транспорт будет реализован на этапе M7; пока доступен только "
-            "stdio (--transport stdio).",
-            file=sys.stderr,
+        server = build_http_server(config)
+        middleware = [Middleware(RequestAuthMiddleware, api_keys=config.api_keys)]
+        asyncio.run(
+            server.run_http_async(
+                host=args.host,
+                port=args.port,
+                middleware=middleware,
+                show_banner=False,
+            )
         )
-        return 2
+        return 0
 
     server = build_server(config)
     asyncio.run(server.run_async(transport="stdio", show_banner=False))

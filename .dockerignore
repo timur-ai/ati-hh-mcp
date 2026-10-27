@@ -1,0 +1,22 @@
+# Кеш и метаданные – обязательно вне контекста сборки.
+.git
+.gitignore
+.omc
+**/__pycache__
+**/.venv
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# Инструменты разработки, не нужные рантайму.
+tests
+docs
+scripts
+.github
+mkdocs.yml
+Dockerfile
+docker-compose.yml
+.dockerignore

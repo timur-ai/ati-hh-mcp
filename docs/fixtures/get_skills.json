@@ -1,0 +1,15 @@
+{
+  "operation": "GET /skills",
+  "url": "/skills?id=665",
+  "recorded_at": "2026-10-27T18:15:20+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "id": "665",
+        "text": "Iron Python"
+      }
+    ]
+  }
+}

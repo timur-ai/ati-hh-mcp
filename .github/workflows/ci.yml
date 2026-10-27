@@ -36,15 +36,71 @@ jobs:
       - name: Tests (pytest)
         run: uv run pytest -q
 
-  # TODO M7: docker smoke – сборка образа из исходников, /health,
-  # tools/list по HTTP (после реализации HTTP-транспорта и Dockerfile).
-  # docker:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - run: docker build -t ati-hh-mcp .
-  #     - run: docker run --rm -d -p 8000:8000 ati-hh-mcp
-  #     - run: curl -sf http://localhost:8000/health
+  # Docker smoke (M7): сборка образа из исходников, /health, tools/list
+  # по HTTP с авторизацией MCP_API_KEYS, проверка 401 без ключа.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t ati-hh-mcp:ci .
+
+      - name: Run container (random host port, API key required)
+        run: |
+          docker run -d --name ati-hh-mcp-ci \
+            -p 18080:8080 \
+            -e MCP_API_KEYS=test-key \
+            -e HH_UA_EMAIL=ci@example.com \
+            ati-hh-mcp:ci
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:18080/health; then echo; exit 0; fi
+            sleep 2
+          done
+          echo "health check failed" >&2
+          docker logs ati-hh-mcp-ci >&2 || true
+          exit 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: MCP tools/list over HTTP (authorized)
+        run: |
+          uv run python - <<'EOF'
+          import asyncio
+
+          from fastmcp import Client
+          from fastmcp.client.transports import StreamableHttpTransport
+
+
+          async def main() -> None:
+              transport = StreamableHttpTransport(
+                  url="http://localhost:18080/mcp",
+                  headers={"Authorization": "Bearer test-key"},
+              )
+              async with Client(transport) as client:
+                  tools = await client.list_tools()
+              names = {tool.name for tool in tools}
+              assert "dict_dictionaries" in names, sorted(names)[:10]
+              assert not any(n.startswith("employer_") for n in names)
+              print(f"tools/list OK: {len(names)} tools")
+
+          asyncio.run(main())
+          EOF
+
+      - name: Unauthorized request must be 401
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/mcp)
+          test "$code" = "401"
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f ati-hh-mcp-ci
 
   # TODO M9: install-from-git – свежее окружение,
   # `uvx --from git+${repo}@sha ati-hh-mcp --version`, затем MCP initialize

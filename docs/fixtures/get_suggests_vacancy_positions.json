@@ -1,0 +1,176 @@
+{
+  "operation": "GET /suggests/vacancy_positions",
+  "url": "/suggests/vacancy_positions?text=%D0%B8%D0%BD%D0%B6%D0%B5%D0%BD%D0%B5%D1%80",
+  "recorded_at": "2026-10-27T18:15:18+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "id": "1537",
+        "text": "Инженер",
+        "professional_roles": [
+          {
+            "id": "48",
+            "name": "Инженер-конструктор, инженер-проектировщик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1720",
+        "text": "Инженер-конструктор",
+        "professional_roles": [
+          {
+            "id": "48",
+            "name": "Инженер-конструктор, инженер-проектировщик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "983",
+        "text": "Главный инженер",
+        "professional_roles": [
+          {
+            "id": "30",
+            "name": "Главный инженер проекта",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1728",
+        "text": "Инженер-механик",
+        "professional_roles": [
+          {
+            "id": "111",
+            "name": "Сервисный инженер, инженер-механик",
+            "accept_incomplete_resumes": true
+          }
+        ]
+      },
+      {
+        "id": "1678",
+        "text": "Инженер ПТО",
+        "professional_roles": [
+          {
+            "id": "47",
+            "name": "Инженер ПТО, инженер-сметчик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1767",
+        "text": "Инженер-строитель",
+        "professional_roles": [
+          {
+            "id": "100",
+            "name": "Прораб, мастер СМР",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1764",
+        "text": "Инженер-сметчик",
+        "professional_roles": [
+          {
+            "id": "47",
+            "name": "Инженер ПТО, инженер-сметчик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1785",
+        "text": "Инженер-электрик",
+        "professional_roles": [
+          {
+            "id": "144",
+            "name": "Инженер-энергетик, инженер-электрик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1615",
+        "text": "Инженер по охране труда",
+        "professional_roles": [
+          {
+            "id": "45",
+            "name": "Инженер по охране труда и технике безопасности, инженер-эколог",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1733",
+        "text": "Инженер-программист",
+        "professional_roles": [
+          {
+            "id": "96",
+            "name": "Программист, разработчик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1782",
+        "text": "Инженер-эколог",
+        "professional_roles": [
+          {
+            "id": "45",
+            "name": "Инженер по охране труда и технике безопасности, инженер-эколог",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "4336",
+        "text": "Сервисный инженер",
+        "professional_roles": [
+          {
+            "id": "111",
+            "name": "Сервисный инженер, инженер-механик",
+            "accept_incomplete_resumes": true
+          }
+        ]
+      },
+      {
+        "id": "1701",
+        "text": "Инженер технической поддержки",
+        "professional_roles": [
+          {
+            "id": "121",
+            "name": "Специалист технической поддержки",
+            "accept_incomplete_resumes": true
+          }
+        ]
+      },
+      {
+        "id": "1791",
+        "text": "Инженер-энергетик",
+        "professional_roles": [
+          {
+            "id": "144",
+            "name": "Инженер-энергетик, инженер-электрик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      },
+      {
+        "id": "1682",
+        "text": "Инженер связи",
+        "professional_roles": [
+          {
+            "id": "48",
+            "name": "Инженер-конструктор, инженер-проектировщик",
+            "accept_incomplete_resumes": false
+          }
+        ]
+      }
+    ]
+  }
+}

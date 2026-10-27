@@ -20,6 +20,7 @@ from urllib.parse import urlencode
 import httpx
 
 from ..config import Config
+from ..request_context import effective_profile, get_request_hh_token
 from .client import CONNECT_TIMEOUT, READ_TIMEOUT, user_agent
 from .errors import HHError, error_from_response
 from .token_store import DEFAULT_PROFILE, StoredTokens, TokenStore
@@ -32,6 +33,31 @@ TOKEN_PATH = "/token"
 
 #: Тип do_request в TokenProvider.ensure_fresh.
 RequestCall = Callable[[str], Awaitable[Any]]
+
+
+def resolve_hh_token(
+    config: Config,
+    store: TokenStore,
+    profile_key: str = DEFAULT_PROFILE,
+) -> str | None:
+    """Единый порядок выбора токена hh.ru (план, «Модель авторизации»).
+
+    1. ``X-HH-Token`` текущего HTTP-запроса (stateless, без хранения);
+    2. OAuth-профиль текущего пользователя (``effective_profile``:
+       sha256 API-ключа в многопользовательском HTTP, ``default`` иначе);
+    3. ``HH_TOKEN`` env – только когда ``MCP_API_KEYS`` не заданы
+       (защита от смешения профилей пользователей).
+    """
+    header_token = get_request_hh_token()
+    if header_token:
+        return header_token
+    profile = effective_profile(profile_key)
+    tokens = store.get_tokens(profile)
+    if tokens is not None:
+        return tokens.access_token
+    if not config.api_keys and profile == DEFAULT_PROFILE and config.token:
+        return config.token
+    return None
 
 
 def _oauth_not_configured(varnames: str) -> HHError:
@@ -74,7 +100,12 @@ class HHOAuth:
         redirect_uri: str | None = None,
         state: str | None = None,
     ) -> str:
-        """Собирает URL входа hh.ru с подписанным state текущего профиля."""
+        """Собирает URL входа hh.ru с подписанным state текущего профиля.
+
+        Профиль берётся из контекста запроса (HTTP-режим привязывает
+        state к API-ключу пользователя), fallback – переданный аргумент.
+        """
+        profile_key = effective_profile(profile_key)
         effective_client_id = client_id or self._config.client_id
         effective_redirect_uri = redirect_uri or self._config.redirect_uri
         if not effective_client_id or not self._config.client_secret:
@@ -135,7 +166,12 @@ class HHOAuth:
         code: str,
         profile_key: str = DEFAULT_PROFILE,
     ) -> StoredTokens:
-        """Обменивает authorization_code на пару токенов и сохраняет её."""
+        """Обменивает authorization_code на пару токенов и сохраняет её.
+
+        Профиль – из контекста запроса, если задан (HTTP-режим), иначе
+        переданный аргумент.
+        """
+        profile_key = effective_profile(profile_key)
         self._require_client_credentials(self._config)
         form = {
             "grant_type": "authorization_code",
@@ -150,6 +186,7 @@ class HHOAuth:
 
     async def refresh(self, profile_key: str = DEFAULT_PROFILE) -> StoredTokens:
         """Обновляет пару токенов профиля под блокировкой магазина."""
+        profile_key = effective_profile(profile_key)
         async with self._store.lock:
             tokens = self._store.get_tokens(profile_key)
             if tokens is None or not tokens.refresh_token:
@@ -175,6 +212,7 @@ class HHOAuth:
         больше не должны использоваться. Возвращает словарь с флагом
         ``revoked`` и текстом ошибки, если она была.
         """
+        profile_key = effective_profile(profile_key)
         tokens = self._store.get_tokens(profile_key)
         if tokens is None:
             return {
@@ -215,7 +253,12 @@ class HHOAuth:
 
 
 class TokenProvider:
-    """Слой выбора токена: env HH_TOKEN (только профиль default) -> store.
+    """Слой выбора токена hh.ru и единичный refresh при ответе 401.
+
+    Порядок выбора – :func:`resolve_hh_token`: ``X-HH-Token`` запроса ->
+    OAuth-профиль текущего пользователя -> ``HH_TOKEN`` env (только без
+    ``MCP_API_KEYS``). Профиль запроса (HTTP-режим) приоритетнее
+    переданного аргумента.
 
     :meth:`ensure_fresh` выполняет запрос через ``do_request(token)`` и при
     ответе 401 (код ``unauthorized``) один раз обновляет пару токенов и
@@ -235,13 +278,8 @@ class TokenProvider:
         self._oauth = HHOAuth(config, store, transport=transport)
 
     def resolve_token(self, profile_key: str = DEFAULT_PROFILE) -> str | None:
-        """Токен hh.ru для профиля: env (только default) -> OAuth-профиль."""
-        if profile_key == DEFAULT_PROFILE and self._config.token:
-            return self._config.token
-        tokens = self._store.get_tokens(profile_key)
-        if tokens is not None:
-            return tokens.access_token
-        return None
+        """Токен hh.ru по порядку плана (см. :func:`resolve_hh_token`)."""
+        return resolve_hh_token(self._config, self._store, profile_key)
 
     async def ensure_fresh(
         self,

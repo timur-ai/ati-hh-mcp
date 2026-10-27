@@ -1,4 +1,4 @@
-"""Тесты CLI (__main__): версия, заглушка HTTP, разбор аргументов."""
+"""Тесты CLI (__main__): версия, разбор аргументов, ветки транспорта."""
 
 from __future__ import annotations
 
@@ -6,6 +6,16 @@ import pytest
 
 from ati_hh_mcp import __main__ as cli
 from ati_hh_mcp import __version__
+
+from ..conftest import make_config
+
+
+class _FakeConfig:
+    """Config.from_env -> тестовая конфигурация (без env-зависимостей)."""
+
+    @staticmethod
+    def from_env() -> object:
+        return make_config()
 
 
 def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
@@ -15,24 +25,60 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert f"ati-hh-mcp {__version__}" in capsys.readouterr().out
 
 
-def test_http_transport_stub(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for var in ("HH_TOKEN", "HH_TOOLSETS", "HH_API_BASE", "HH_UA_EMAIL"):
-        monkeypatch.delenv(var, raising=False)
-    code = cli.main(["serve", "--transport", "http"])
-    assert code == 2
-    assert "M7" in capsys.readouterr().err
-
-
 def test_parser_defaults() -> None:
     args = cli.build_parser().parse_args(["serve"])
     assert args.transport == "stdio"
-    assert args.host == "127.0.0.1"
-    assert args.port == 8000
+    assert args.host == "0.0.0.0"
+    assert args.port == 8080
     assert args.toolsets is None
 
 
 def test_parser_toolsets_override() -> None:
     args = cli.build_parser().parse_args(["serve", "--toolsets", "dictionaries,extended"])
     assert args.toolsets == "dictionaries,extended"
+
+
+def test_parser_http_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = cli.build_parser().parse_args(
+        ["serve", "--transport", "http", "--host", "127.0.0.1", "--port", "9999"]
+    )
+    assert args.transport == "http"
+    assert args.host == "127.0.0.1"
+    assert args.port == 9999
+
+
+def test_serve_stdio_runs_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stdio-ветка запускает run_async (подменён, чтобы не блокировать)."""
+    started: list[dict[str, object]] = []
+
+    class _FakeServer:
+        async def run_async(self, **kwargs: object) -> None:
+            started.append(kwargs)
+
+    monkeypatch.setattr(cli, "build_server", lambda _cfg: _FakeServer())
+    monkeypatch.setattr(cli, "Config", _FakeConfig)
+    code = cli.main(["serve"])
+    assert code == 0
+    assert started == [{"transport": "stdio", "show_banner": False}]
+
+
+def test_serve_http_runs_http_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """http-ветка запускает run_http_async с middleware гейта."""
+    started: list[dict[str, object]] = []
+
+    class _FakeServer:
+        async def run_http_async(self, **kwargs: object) -> None:
+            started.append(kwargs)
+
+    monkeypatch.setattr(cli, "build_http_server", lambda _cfg: _FakeServer())
+    monkeypatch.setattr(cli, "Config", _FakeConfig)
+    code = cli.main(
+        ["serve", "--transport", "http", "--host", "127.0.0.1", "--port", "8123"]
+    )
+    assert code == 0
+    assert len(started) == 1
+    kwargs = started[0]
+    assert kwargs["host"] == "127.0.0.1"
+    assert kwargs["port"] == 8123
+    assert kwargs["show_banner"] is False
+    assert len(kwargs["middleware"]) == 1  # гейт RequestAuthMiddleware.

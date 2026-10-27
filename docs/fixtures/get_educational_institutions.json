@@ -1,0 +1,21 @@
+{
+  "operation": "GET /educational_institutions",
+  "url": "/educational_institutions?id=39144",
+  "recorded_at": "2026-10-27T18:15:21+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "id": "39144",
+        "acronym": "МГУ",
+        "text": "Московский государственный университет имени М.В. Ломоносова",
+        "synonyms": null,
+        "area": {
+          "id": "1",
+          "name": "Москва"
+        }
+      }
+    ]
+  }
+}

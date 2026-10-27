@@ -1,0 +1,132 @@
+{
+  "operation": "GET /suggests/companies",
+  "url": "/suggests/companies?text=HeadHunter",
+  "recorded_at": "2026-10-27T18:15:13+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "id": "1455",
+        "text": "HeadHunter",
+        "url": "https://hh.ru/",
+        "area": {
+          "id": "113",
+          "name": "Россия"
+        },
+        "logo_urls": {
+          "90": "https://hh.ru/employer-logo/8646146.png",
+          "240": "https://hh.ru/employer-logo/8646147.png"
+        },
+        "industries": [
+          {
+            "id": "7.541",
+            "name": "Интернет-компания (поисковики, платежные системы, соц.сети, информационно-познавательные и развлекательные ресурсы, продвижение сайтов и прочее)"
+          }
+        ]
+      },
+      {
+        "id": "2539766",
+        "text": "HeadHunter: Казахстан",
+        "url": null,
+        "area": {
+          "id": "160",
+          "name": "Алматы"
+        },
+        "logo_urls": {
+          "90": "https://hh.ruNone",
+          "240": "https://hh.ru/employer-logo-round/7098363.png"
+        },
+        "industries": [
+          {
+            "id": "7.541",
+            "name": "Интернет-компания (поисковики, платежные системы, соц.сети, информационно-познавательные и развлекательные ресурсы, продвижение сайтов и прочее)"
+          }
+        ]
+      },
+      {
+        "id": "2538692",
+        "text": "Тестовая регистрация технической поддержки HeadHunter",
+        "url": null,
+        "area": {
+          "id": "None",
+          "name": null
+        },
+        "logo_urls": null,
+        "industries": [
+          {
+            "id": "7.540",
+            "name": "Разработка программного обеспечения"
+          },
+          {
+            "id": "7.541",
+            "name": "Интернет-компания (поисковики, платежные системы, соц.сети, информационно-познавательные и развлекательные ресурсы, продвижение сайтов и прочее)"
+          }
+        ]
+      },
+      {
+        "id": "1998157",
+        "text": "Bulgarian Headhunters",
+        "url": null,
+        "area": {
+          "id": "200",
+          "name": "Болгария"
+        },
+        "logo_urls": null,
+        "industries": []
+      },
+      {
+        "id": "3163357",
+        "text": "HEADHUNTER.KG",
+        "url": null,
+        "area": {
+          "id": "2760",
+          "name": "Бишкек"
+        },
+        "logo_urls": {
+          "90": "https://hh.ru/employer-logo-round/5658816.png",
+          "240": "https://hh.ru/employer-logo-round/5658817.png"
+        },
+        "industries": [
+          {
+            "id": "7.541",
+            "name": "Интернет-компания (поисковики, платежные системы, соц.сети, информационно-познавательные и развлекательные ресурсы, продвижение сайтов и прочее)"
+          }
+        ]
+      },
+      {
+        "id": "3296329",
+        "text": "HeadHunter",
+        "url": null,
+        "area": {
+          "id": "112",
+          "name": "Ярославль"
+        },
+        "logo_urls": null,
+        "industries": []
+      },
+      {
+        "id": "2728225",
+        "text": "Тестовая компания HeadHunter",
+        "url": null,
+        "area": {
+          "id": "1621",
+          "name": "Волжск"
+        },
+        "logo_urls": null,
+        "industries": []
+      },
+      {
+        "id": "2699481",
+        "text": "тестовая регистрация HeadHunter Казахстан",
+        "url": null,
+        "area": {
+          "id": "40",
+          "name": "Казахстан"
+        },
+        "logo_urls": null,
+        "industries": []
+      }
+    ]
+  }
+}

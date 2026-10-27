@@ -1,0 +1,17 @@
+{
+  "operation": "GET /locales/resume",
+  "url": "/locales/resume",
+  "recorded_at": "2026-10-27T18:15:08+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": [
+    {
+      "id": "RU",
+      "name": "Русский"
+    },
+    {
+      "id": "EN",
+      "name": "English"
+    }
+  ]
+}

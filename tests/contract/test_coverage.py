@@ -15,6 +15,10 @@
 Группы покрытия объявляются файлами ``tests/contract/groups_<имя>.py``
 (формат – докстринг groups_dictionaries.py) и подхватываются автоматически:
 волна добавляет свой файл, метатест забирает его без правок этого модуля.
+Необязательные атрибуты группы (введены волной M3d-Ч2):
+``POST_NON_MUTATIONS`` – POST-операции, семантически являющиеся чтением
+(``is_mutation=False`` без confirm), и ``PUBLIC_OPERATIONS`` – операции
+без токена hh.ru внутри группы с ``REQUIRES_AUTH=True``.
 Наборы, ещё не подключённые в ``server.py`` (интеграция – lead волны),
 для метатеста регистрируются на сервере напрямую.
 """
@@ -73,6 +77,10 @@ class GroupSpec:
     operations: frozenset[str]  # операции вида "METHOD /path"
     requires_auth: bool
     module_name: str  # модуль набора; импорт регистрирует реестр
+    # POST-операции, семантически являющиеся чтением (is_mutation=False).
+    post_non_mutations: frozenset[str] = frozenset()
+    # Операции без токена hh.ru внутри группы с requires_auth=True.
+    public_operations: frozenset[str] = frozenset()
 
 
 def _discover_groups() -> dict[str, GroupSpec]:
@@ -93,6 +101,14 @@ def _discover_groups() -> dict[str, GroupSpec]:
             module_name=str(
                 getattr(module, "MODULE", f"ati_hh_mcp.toolsets.{toolset}")
             ),
+            post_non_mutations=frozenset(
+                f"{method} {path}"
+                for method, path in getattr(module, "POST_NON_MUTATIONS", ())
+            ),
+            public_operations=frozenset(
+                f"{method} {path}"
+                for method, path in getattr(module, "PUBLIC_OPERATIONS", ())
+            ),
         )
     if not specs:
         raise RuntimeError("файлы групп покрытия groups_*.py не найдены")
@@ -110,9 +126,6 @@ _ensure_auth_registered()
 
 GROUP_OPERATIONS: dict[str, frozenset[str]] = {
     name: spec.operations for name, spec in GROUPS.items()
-}
-GROUP_REQUIRES_AUTH: dict[str, bool] = {
-    name: spec.requires_auth for name, spec in GROUPS.items()
 }
 IMPLEMENTED_TOOLSETS: tuple[str, ...] = tuple(sorted(GROUPS))
 
@@ -270,12 +283,17 @@ def test_group_operations_have_registry_tools(toolset: str) -> None:
         f"лишние {sorted(registered - expected)}"
     )
     # Флаги реестра согласованы с декларацией группы и методом операции:
-    # не-GET операции этого проекта – мутации с confirm.
-    expected_auth = GROUP_REQUIRES_AUTH[toolset]
+    # не-GET операции – мутации с confirm, кроме POST-операций из
+    # POST_NON_MUTATIONS (поиск без изменения состояния).
+    spec = GROUPS[toolset]
     for entry in mapped:
+        expected_auth = spec.requires_auth and entry.operation_id not in spec.public_operations
         assert entry.requires_auth is expected_auth, entry.name
         method = entry.operation_id.split(" ", 1)[0]
-        assert entry.is_mutation is (method != "GET"), entry.name
+        expected_mutation = (
+            method != "GET" and entry.operation_id not in spec.post_non_mutations
+        )
+        assert entry.is_mutation is expected_mutation, entry.name
 
 
 IMPLEMENTED_TOOLS = sorted(

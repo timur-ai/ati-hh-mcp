@@ -1,0 +1,231 @@
+{
+  "operation": "GET /suggests/area_leaves",
+  "url": "/suggests/area_leaves?text=%D0%9C%D0%BE%D1%81%D0%BA&area_id=113",
+  "recorded_at": "2026-10-27T18:15:12+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "id": "1",
+        "text": "Москва",
+        "url": "https://api.hh.ru/areas/1",
+        "parent": {
+          "id": "113",
+          "text": "Россия",
+          "url": "https://api.hh.ru/areas/113"
+        }
+      },
+      {
+        "id": "2061",
+        "text": "Подольск (Московская область)",
+        "url": "https://api.hh.ru/areas/2061",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2039",
+        "text": "Люберцы  (Московская область)",
+        "url": "https://api.hh.ru/areas/2039",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2053",
+        "text": "Одинцово (Московская область)",
+        "url": "https://api.hh.ru/areas/2053",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2077",
+        "text": "Химки (Московская область)",
+        "url": "https://api.hh.ru/areas/2077",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2041",
+        "text": "Мытищи (Московская область)",
+        "url": "https://api.hh.ru/areas/2041",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2020",
+        "text": "Балашиха (Московская область)",
+        "url": "https://api.hh.ru/areas/2020",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2090",
+        "text": "Королев (Московская область)",
+        "url": "https://api.hh.ru/areas/2090",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2034",
+        "text": "Красногорск (Московская область)",
+        "url": "https://api.hh.ru/areas/2034",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2087",
+        "text": "Железнодорожный  (Московская область)",
+        "url": "https://api.hh.ru/areas/2087",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2083",
+        "text": "Щелково (Московская область)",
+        "url": "https://api.hh.ru/areas/2083",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2025",
+        "text": "Домодедово (Московская область)",
+        "url": "https://api.hh.ru/areas/2025",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2062",
+        "text": "Пушкино (Московская область)",
+        "url": "https://api.hh.ru/areas/2062",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2065",
+        "text": "Раменское (Московская область)",
+        "url": "https://api.hh.ru/areas/2065",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      },
+      {
+        "id": "2069",
+        "text": "Сергиев Посад (Московская область)",
+        "url": "https://api.hh.ru/areas/2069",
+        "parent": {
+          "id": "2019",
+          "text": "Московская область",
+          "url": "https://api.hh.ru/areas/2019",
+          "parent": {
+            "id": "113",
+            "text": "Россия",
+            "url": "https://api.hh.ru/areas/113"
+          }
+        }
+      }
+    ]
+  }
+}

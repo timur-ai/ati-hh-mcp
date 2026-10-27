@@ -1,0 +1,42 @@
+{
+  "operation": "GET /suggests/vacancy_search_keyword",
+  "url": "/suggests/vacancy_search_keyword?text=python",
+  "recorded_at": "2026-10-27T18:15:19+00:00",
+  "status": 200,
+  "sanitize": "basic",
+  "body": {
+    "items": [
+      {
+        "text": "Python"
+      },
+      {
+        "text": "Python стажер"
+      },
+      {
+        "text": "Python developer"
+      },
+      {
+        "text": "Python разработчик"
+      },
+      {
+        "text": "Python backend"
+      },
+      {
+        "text": "Python django"
+      },
+      {
+        "text": "Python-разработчик"
+      },
+      {
+        "text": "Python программист"
+      },
+      {
+        "text": "Python middle"
+      },
+      {
+        "text": "Python fastapi"
+      }
+    ],
+    "suggest_id": "236d393f-9c7a-4e16-8ca5-f6e362afff1b"
+  }
+}
