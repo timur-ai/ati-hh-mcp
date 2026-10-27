@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Виртуальные окружения
+.venv/
+venv/
+
+# uv (uv.lock коммитится – пиннинг зависимостей по плану)
+
+# Тесты и линтеры
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Документация (сборка)
+site/
+
+# Секреты и локальное окружение
+.env
+.env.*
+
+# Локальные рабочие каталоги агентов (не часть проекта)
+.omc/
+.v2c/
+.video_agent/
