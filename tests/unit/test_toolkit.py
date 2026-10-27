@@ -226,6 +226,48 @@ async def test_post_without_query_fields_keeps_body_only(mock_hh: MockHH) -> Non
     assert json.loads(request.read()) == {"name": "N", "ignore_duplicates": True}
 
 
+class _FormBodyParams(BaseModel):
+    """Модель form-операции: тело без query-полей."""
+
+    resume_id: str | None = None
+    send_sms: bool | None = None
+
+
+async def test_body_format_form_sends_urlencoded(mock_hh: MockHH) -> None:
+    """body_format='form': тело уходит data= (form-encoded), bool – true/false."""
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="POST /form_demo",
+        name="unit_form_post",
+        summary="Form body demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_FormBodyParams,
+        body_format="form",
+    )
+    await tool(resume_id="123", send_sms=True, confirm=True)
+    request = mock_hh.requests[-1]
+    assert request.method == "POST"
+    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    assert request.content == b"resume_id=123&send_sms=true"
+    assert dict(request.url.params) == {}  # query-строка пуста: всё в теле.
+
+
+def test_body_format_form_rejected_for_get() -> None:
+    with pytest.raises(ValueError, match="POST/PUT"):
+        toolkit.make_tool(
+            operation_id="GET /bad_form_demo",
+            name="unit_bad_form_get",
+            summary="Bad form body",
+            toolset="unit_test",
+            requires_auth=False,
+            is_mutation=False,
+            param_model=_FormBodyParams,
+            body_format="form",
+        )
+
+
 def test_query_fields_rejected_for_get() -> None:
     with pytest.raises(ValueError, match="POST/PUT"):
         toolkit.make_tool(

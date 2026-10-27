@@ -15,7 +15,7 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from pydantic import BaseModel
@@ -94,12 +94,25 @@ def _split_query_body(
     data: dict[str, Any],
     query_fields: frozenset[str],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Делит параметры POST/PUT на query-часть и JSON-тело."""
+    """Делит параметры POST/PUT на query-часть и тело запроса."""
     if not query_fields:
         return {}, data
     query = {k: v for k, v in data.items() if k in query_fields}
     body = {k: v for k, v in data.items() if k not in query_fields}
     return query, body
+
+
+def _form_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """Значения для x-www-form-urlencoded-тела.
+
+    ``bool`` приводится к строкам ``true``/``false`` (стиль JSON): httpx
+    кодирует примитивы формы через ``str()`` и превратил бы ``True`` в
+    ``"True"``, которое API hh.ru не разбирает.
+    """
+    return {
+        key: str(value).lower() if isinstance(value, bool) else value
+        for key, value in data.items()
+    }
 
 
 def make_tool(
@@ -113,6 +126,7 @@ def make_tool(
     param_model: type[BaseModel] | None = None,
     docstring_en: str | None = None,
     query_fields: frozenset[str] | set[str] | None = None,
+    body_format: Literal["json", "form"] = "json",
 ) -> Callable[..., Awaitable[Any]]:
     """Создаёт функцию-инструмент и регистрирует её в реестре.
 
@@ -123,6 +137,12 @@ def make_tool(
     уходят в query-строку, а не в тело (мутации hh.ru с query-параметрами:
     ``ignore_duplicates`` у POST /vacancies, ``successor_id`` у DELETE
     менеджеров и т.п.). Для GET/DELETE недопустим (там всё и так query).
+
+    ``body_format`` – кодировка тела POST/PUT: ``"json"`` (по умолчанию)
+    или ``"form"`` (``application/x-www-form-urlencoded`` через ``data=``;
+    для операций, у которых вендор-спека декларирует form-тело:
+    preferred_negotiations_order, phone_interview, applicant_comments).
+    Для GET/DELETE недопустим (тела нет).
     """
     method, path = _parse_operation_id(operation_id)
 
@@ -130,6 +150,14 @@ def make_tool(
         raise ValueError(
             f"модель параметров {param_model.__name__} не должна объявлять поле "
             "'confirm': для мутаций оно добавляется автоматически"
+        )
+
+    if body_format not in ("json", "form"):
+        raise ValueError(f"body_format ожидает 'json' или 'form', получено: {body_format!r}")
+    if body_format == "form" and method not in ("POST", "PUT"):
+        raise ValueError(
+            f"body_format='form' применим только к POST/PUT; {method} не "
+            "отправляет тело запроса"
         )
 
     effective_query_fields = frozenset(query_fields) if query_fields else frozenset()
@@ -172,12 +200,14 @@ def make_tool(
                 return await client.get(request_path, params=data)
             if method == "DELETE":
                 return await client.delete(request_path, params=data)
-            if method == "POST":
+            if method in ("POST", "PUT"):
                 query, body = _split_query_body(data, effective_query_fields)
-                return await client.post(request_path, params=query, json=body or None)
-            if method == "PUT":
-                query, body = _split_query_body(data, effective_query_fields)
-                return await client.put(request_path, params=query, json=body or None)
+                sender = client.post if method == "POST" else client.put
+                if body_format == "form":
+                    return await sender(
+                        request_path, params=query, data=_form_fields(body) or None
+                    )
+                return await sender(request_path, params=query, json=body or None)
             raise ValueError(f"неподдерживаемый HTTP-метод: {method}")
         finally:
             await client.aclose()

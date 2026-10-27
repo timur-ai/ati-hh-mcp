@@ -44,6 +44,13 @@ _TOOLSET_MODULE_NAMES: dict[str, str] = {
     "dictionaries": "ati_hh_mcp.toolsets.dictionaries",
     "suggests": "ati_hh_mcp.toolsets.suggests",
     "vacancies": "ati_hh_mcp.toolsets.vacancies",
+    "negotiations": "ati_hh_mcp.toolsets.negotiations",
+    "chats": "ati_hh_mcp.toolsets.chats",
+    "resumes": "ati_hh_mcp.toolsets.resumes",
+    "employer_vacancies": "ati_hh_mcp.toolsets.employer_vacancies",
+    "employer_negotiations": "ati_hh_mcp.toolsets.employer_negotiations",
+    "employer_resumes": "ati_hh_mcp.toolsets.employer_resumes",
+    "employer_managers": "ati_hh_mcp.toolsets.employer_managers",
     "extended": "ati_hh_mcp.toolsets.extended",
 }
 

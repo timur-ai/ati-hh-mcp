@@ -1,21 +1,31 @@
 """Контрактный метатест покрытия: инструменты ↔ операции вендорённой OpenAPI.
 
 Инварианты (план, «Реестр и метатест покрытия»):
-- каждая операция групп dictionaries/suggests/vacancies/auth имеет
-  инструмент с совпадающими method+path (operation_id в реестре);
+- каждая операция каждой группы имеет инструмент с совпадающими
+  method+path (operation_id в реестре);
 - для каждого реализованного инструмента (кроме служебных
   ``INTERNAL auth:*`` и всего undocumented-набора extended): обязательные
   query/path параметры операции ⊆ имена параметров инструмента
-  (рекурсивно по вложенным pydantic-моделям; служебный confirm исключён)
-  ⊆ множество всех параметров операции;
-- нереализованные группы собраны в PENDING_TOOLSETS (волны 3) – тест на
-  них не падает, количество оставшихся операций залогируется.
+  (рекурсивно по вложенным pydantic-моделям) ⊆ множество всех параметров
+  операции; служебные параметры инструмента (``confirm`` – подтверждение
+  мутации, ``body`` – носитель JSON-тела POST/PUT-операций) исключены;
+- нереализованные группы собраны в PENDING_TOOLSETS – тест на них не
+  падает, количество оставшихся операций залогируется.
+
+Группы покрытия объявляются файлами ``tests/contract/groups_<имя>.py``
+(формат – докстринг groups_dictionaries.py) и подхватываются автоматически:
+волна добавляет свой файл, метатест забирает его без правок этого модуля.
+Наборы, ещё не подключённые в ``server.py`` (интеграция – lead волны),
+для метатеста регистрируются на сервере напрямую.
 """
 
 from __future__ import annotations
 
+import importlib
 import os
+import pkgutil
 import tempfile
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -27,16 +37,8 @@ from fastmcp import Client, FastMCP
 from ati_hh_mcp.config import DEFAULT_TOOLSETS
 from ati_hh_mcp.hh.token_store import TokenStore
 from ati_hh_mcp.registry import REGISTRY
-from ati_hh_mcp.server import build_server
-
-# Импорт toolset-модулей регистрирует инструменты в реестре (1:1 с операциями).
-from ati_hh_mcp.toolsets import (
-    auth_tools,
-    dictionaries,  # noqa: F401
-    extended,  # noqa: F401
-    suggests,  # noqa: F401
-    vacancies,  # noqa: F401
-)
+from ati_hh_mcp.server import TOOLSET_MODULES, build_server
+from ati_hh_mcp.toolsets import auth_tools
 
 from ..conftest import make_config
 
@@ -51,8 +53,6 @@ def _ensure_auth_registered() -> None:
     auth_tools.register(throwaway, config=make_config(), store=TokenStore())
 
 
-_ensure_auth_registered()
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = PROJECT_ROOT / "docs" / "openapi" / "hh-openapi.yaml"
 
@@ -61,82 +61,80 @@ _TEMP_DIR = Path(tempfile.mkdtemp(prefix="ati-hh-mcp-contract-"))
 
 TOTAL_OPERATIONS = 135  # публичная OpenAPI hh.ru (фиксация ревизии спеки)
 
-# Группы, отображаемые на операции спеки: волна 2 (M3a) + auth (M5-модули).
-IMPLEMENTED_TOOLSETS = ("dictionaries", "suggests", "vacancies", "auth")
+
+# --- автоподхват групп покрытия (tests/contract/groups_*.py) ----------------
+
+
+@dataclass(frozen=True)
+class GroupSpec:
+    """Декларация одной группы покрытия из файла groups_*.py."""
+
+    toolset: str
+    operations: frozenset[str]  # операции вида "METHOD /path"
+    requires_auth: bool
+    module_name: str  # модуль набора; импорт регистрирует реестр
+
+
+def _discover_groups() -> dict[str, GroupSpec]:
+    """Собирает спецификации групп из всех файлов groups_*.py."""
+    specs: dict[str, GroupSpec] = {}
+    for mod_info in pkgutil.iter_modules([str(Path(__file__).parent)]):
+        if not mod_info.name.startswith("groups_"):
+            continue
+        module = importlib.import_module(f".{mod_info.name}", __package__)
+        toolset: str = module.TOOLSET
+        operations = frozenset(
+            f"{method} {path}" for method, path in module.OPERATIONS
+        )
+        specs[toolset] = GroupSpec(
+            toolset=toolset,
+            operations=operations,
+            requires_auth=bool(getattr(module, "REQUIRES_AUTH", True)),
+            module_name=str(
+                getattr(module, "MODULE", f"ati_hh_mcp.toolsets.{toolset}")
+            ),
+        )
+    if not specs:
+        raise RuntimeError("файлы групп покрытия groups_*.py не найдены")
+    return specs
+
+
+GROUPS: dict[str, GroupSpec] = _discover_groups()
+
+# Импорт toolset-модулей регистрирует инструменты в реестре (1:1 с
+# операциями групп); записи auth появляются в _ensure_auth_registered().
+for _spec in GROUPS.values():
+    importlib.import_module(_spec.module_name)
+
+_ensure_auth_registered()
+
+GROUP_OPERATIONS: dict[str, frozenset[str]] = {
+    name: spec.operations for name, spec in GROUPS.items()
+}
+GROUP_REQUIRES_AUTH: dict[str, bool] = {
+    name: spec.requires_auth for name, spec in GROUPS.items()
+}
+IMPLEMENTED_TOOLSETS: tuple[str, ...] = tuple(sorted(GROUPS))
 
 # Служебные инструменты вне 135 операций: плейсхолдеры реестра вида
 # "INTERNAL auth:*" (login_url/exchange_code/status) – в проверки покрытия
 # не попадают (операций с такими id в спеке нет).
 INTERNAL_OPERATION_PREFIX = "INTERNAL "
 
-GROUP_OPERATIONS: dict[str, frozenset[str]] = {
-    "dictionaries": frozenset(
-        {
-            "GET /dictionaries",
-            "GET /areas",
-            "GET /areas/countries",
-            "GET /areas/{area_id}",
-            "GET /industries",
-            "GET /professional_roles",
-            "GET /languages",
-            "GET /locales",
-            "GET /locales/resume",
-            "GET /districts",
-            "GET /metro",
-            "GET /metro/{city_id}",
-            "GET /skills",
-            "GET /educational_institutions",
-            "GET /educational_institutions/{id}/faculties",
-            "GET /vacancy_conditions",
-        }
-    ),
-    "suggests": frozenset(
-        {
-            "GET /suggests/areas",
-            "GET /suggests/area_leaves",
-            "GET /suggests/companies",
-            "GET /suggests/educational_institutions",
-            "GET /suggests/fields_of_study",
-            "GET /suggests/positions",
-            "GET /suggests/professional_roles",
-            "GET /suggests/resume_search_keyword",
-            "GET /suggests/skill_set",
-            "GET /suggests/vacancy_positions",
-            "GET /suggests/vacancy_search_keyword",
-        }
-    ),
-    "vacancies": frozenset(
-        {
-            "GET /vacancies",
-            "GET /vacancies/{vacancy_id}",
-            "GET /vacancies/{vacancy_id}/similar_vacancies",
-            "GET /vacancies/{vacancy_id}/related_vacancies",
-        }
-    ),
-    # auth: операции из 135, покрытые инструментами; auth_get_login_url/
-    # auth_exchange_code/auth_status – служебные (INTERNAL auth:*), вне 135.
-    "auth": frozenset(
-        {
-            "GET /me",
-            "DELETE /token",
-        }
-    ),
-}
-
-# Группы следующих волн (волны 3, M3b–M3d) и undocumented-набор extended
-# (M6; его операции вне публичной спеки). Список должен уменьшаться по мере
-# реализации; тест на них не падает.
-PENDING_TOOLSETS = [
-    "negotiations",
-    "chats",
-    "resumes",
+# Полный состав наборов проекта (план, «Группировка наборов»); группы,
+# для которых файла groups_*.py ещё нет, – ожидают своей волны.
+ALL_TOOLSETS: tuple[str, ...] = DEFAULT_TOOLSETS + (
     "employer_vacancies",
     "employer_negotiations",
     "employer_resumes",
     "employer_managers",
     "employer_misc",
     "extended",
-]
+)
+
+PENDING_TOOLSETS: list[str] = sorted(
+    name for name in ALL_TOOLSETS if name not in GROUPS
+)
 
 # Операции без отдельного инструмента по решению реестра.
 INTERNAL_OPERATIONS = {
@@ -230,6 +228,13 @@ async def _tool_input_schemas() -> dict[str, dict[str, Any]]:
         os.environ["HH_TOKEN_STORE"] = str(_TEMP_DIR / "tokens.sqlite3")
         try:
             server = build_server(make_config(toolsets=IMPLEMENTED_TOOLSETS))
+            # Группы, ещё не подключённые в server.py (интеграция в общий
+            # словарь TOOLSET_MODULES – за lead волны): инструменты для
+            # метатеста регистрируются напрямую, чтобы tools/list был полным.
+            for toolset, spec in GROUPS.items():
+                if toolset not in TOOLSET_MODULES:
+                    module = importlib.import_module(spec.module_name)
+                    module.register(server)  # type: ignore[attr-defined]
             async with Client(server) as client:
                 tools = await client.list_tools()
         finally:
@@ -242,7 +247,7 @@ async def _tool_input_schemas() -> dict[str, dict[str, Any]]:
 
 
 def _spec() -> dict[str, Any]:
-    """Спецификация (парсится один раз на процесс)."""
+    """Спецификация (парсируется один раз на процесс)."""
     return _load_spec()
 
 
@@ -257,24 +262,20 @@ def test_group_operations_have_registry_tools(toolset: str) -> None:
     """Каждая операция группы покрыта инструментом с теми же method+path."""
     entries = REGISTRY.by_toolset(toolset)
     # Служебные INTERNAL auth:* не отображаются на операции спеки.
-    registered = {
-        e.operation_id
-        for e in entries
-        if not e.operation_id.startswith(INTERNAL_OPERATION_PREFIX)
-    }
+    mapped = [e for e in entries if not e.operation_id.startswith(INTERNAL_OPERATION_PREFIX)]
+    registered = {e.operation_id for e in mapped}
     expected = set(GROUP_OPERATIONS[toolset])
     assert registered == expected, (
         f"{toolset}: не покрыты {sorted(expected - registered)}, "
         f"лишние {sorted(registered - expected)}"
     )
-    if toolset in ("dictionaries", "suggests", "vacancies"):
-        for entry in entries:
-            assert entry.requires_auth is False, entry.name
-            assert entry.is_mutation is False, entry.name
-    else:  # auth: флаги по решению реестра
-        assert REGISTRY.get("get_me").requires_auth is True  # type: ignore[union-attr]
-        assert REGISTRY.get("get_me").is_mutation is False  # type: ignore[union-attr]
-        assert REGISTRY.get("auth_logout").is_mutation is True  # type: ignore[union-attr]
+    # Флаги реестра согласованы с декларацией группы и методом операции:
+    # не-GET операции этого проекта – мутации с confirm.
+    expected_auth = GROUP_REQUIRES_AUTH[toolset]
+    for entry in mapped:
+        assert entry.requires_auth is expected_auth, entry.name
+        method = entry.operation_id.split(" ", 1)[0]
+        assert entry.is_mutation is (method != "GET"), entry.name
 
 
 IMPLEMENTED_TOOLS = sorted(
@@ -299,8 +300,11 @@ async def test_parametric_contract(tool_name: str) -> None:
     schemas = await _tool_input_schemas()
     schema = schemas[tool_name]
     tool_params = _schema_leaf_names(schema, schema.get("$defs", {}))
-    # Служебный параметр подтверждения мутаций в контракт не входит.
+    # Служебные параметры инструмента вне операции: confirm (подтверждение
+    # мутации) и body (носитель JSON-тела POST/PUT; содержимое тела –
+    # свободный словарь по схеме requestBody, в query/path не входит).
     tool_params.discard("confirm")
+    tool_params.discard("body")
 
     required, all_names = _operation_params(op, spec)
     missing = required - tool_params
@@ -361,9 +365,11 @@ async def test_default_toolsets_hide_extended_and_show_auth() -> None:
 
     # auth-инструменты доступны всегда (набор в дефолтной конфигурации).
     assert {"auth_status", "get_me", "auth_get_login_url"} <= default_names
+    # Дефолтные наборы волн 2–3 подключены к серверу: отклики доступны,
+    # employer_* (вне DEFAULT_TOOLSETS) – скрыты.
+    assert "list_negotiations" in default_names
+    assert not any(name.startswith("employer_") for name in default_names)
     # extended по умолчанию скрыт, при явном включении – появляется.
     assert "apply_to_vacancy" not in default_names
     assert "apply_to_vacancy" in extended_names
     assert "my_resumes" in extended_names
-    # Нереализованные наборы (волны 3) молча пропускаются.
-    assert not any(name.startswith("list_negotiations") for name in default_names)
