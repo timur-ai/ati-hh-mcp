@@ -3,6 +3,44 @@
 Two supported paths: **uvx from git** (stdio, personal) and **Docker Compose**
 (HTTP, teams). A repository clone is not needed for either.
 
+## TLS is mandatory for network exposure
+
+`Authorization: Bearer` headers (your MCP API key and hh.ru tokens in
+`X-HH-Token`) must never cross an unencrypted network. Rules:
+
+- The server speaks plain HTTP; put a TLS-terminating reverse proxy in front
+  whenever it is reachable beyond `127.0.0.1`.
+- The server refuses to start in HTTP mode without `MCP_API_KEYS` on a
+  non-loopback host (use `--host 127.0.0.1` for personal runs).
+- Bind Docker to loopback and let the proxy own the public port
+  (`ports: ["127.0.0.1:8080:8080"]` – commented variant in
+  `docker-compose.yml`).
+- Run **one worker process**: the SQLite token store assumes a single
+  process (WAL); scaling out requires an external store.
+
+Caddy one-liner (automatic HTTPS):
+
+```bash
+caddy reverse-proxy --from hh-mcp.example.com --to 127.0.0.1:8080
+```
+
+nginx equivalent:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name hh-mcp.example.com;
+    ssl_certificate     /etc/letsencrypt/live/hh-mcp.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/hh-mcp.example.com/privkey.pem;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_buffering off;   # streamable HTTP / SSE
+    }
+}
+```
+
 ## uvx from git (stdio)
 
 ```bash
@@ -23,8 +61,7 @@ The CI pipeline verifies this exact path (install from git + MCP initialize +
 ```bash
 git clone https://github.com/timur-ai/ati-hh-mcp
 cd ati-hh-mcp
-# edit MCP_API_KEYS and HH_UA_EMAIL in docker-compose.yml
-docker compose up --build
+MCP_API_KEYS="$(openssl rand -hex 32)" docker compose up --build
 ```
 
 The container:
@@ -34,7 +71,8 @@ The container:
 - runs as a non-root user;
 - keeps OAuth tokens in the `hh-tokens` volume (`/data/tokens.sqlite3`);
 - requires `MCP_API_KEYS` in multi-user setups – every client then sends
-  `Authorization: Bearer <key>` and gets an isolated OAuth profile.
+  `Authorization: Bearer <key>` and gets an isolated OAuth profile (keys are
+  case-sensitive).
 
 Build straight from sources without Compose:
 

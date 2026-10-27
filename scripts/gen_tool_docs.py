@@ -188,7 +188,8 @@ def _render_index(
         "",
         f"**Total: {total} tools** in {len(TOOLSET_ORDER)} toolsets"
         f" ({sum(1 for t in TOOLSET_ORDER if t != 'auth')} switchable via"
-        " `HH_TOOLSETS` plus the always-on `auth`).",
+        " `HH_TOOLSETS`, which fully replaces the default list; the `auth`"
+        " toolset is always on).",
         "",
     ]
     return "\n".join(lines) + "\n"

@@ -192,6 +192,19 @@ def make_tool(
                 "Подтвердите операцию: передайте confirm=True.",
             )
         kwargs.pop("confirm", None)
+        # Ключи dict-body не должны совпадать с path-параметрами операции:
+        # после разворачивания такой ключ затёрл бы значение пути.
+        raw_body = kwargs.get("body")
+        if isinstance(raw_body, dict):
+            path_params = set(re.findall(r"\{(\w+)\}", path))
+            clash = sorted(path_params & raw_body.keys())
+            if clash:
+                raise HHError(
+                    "bad_request",
+                    "Ключ(и) body "
+                    + ", ".join(repr(k) for k in clash)
+                    + " конфликтуют с path-параметром операции; уберите их из body.",
+                )
         data = flatten_params(kwargs)
         request_path = render_path(path, data)
         client = _client_factory()

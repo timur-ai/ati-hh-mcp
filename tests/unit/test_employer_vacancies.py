@@ -388,3 +388,16 @@ def test_registry_lookup_by_operation() -> None:
         "GET /vacancies/{vacancy_id}/upgrades",
     ):
         assert REGISTRY.get_by_operation(operation_id) is not None
+
+
+async def test_update_vacancy_body_path_clash_rejected(mock_hh: MockHH) -> None:
+    """body с ключом vacancy_id конфликтует с path-параметром – отказ."""
+    with pytest.raises(HHError) as excinfo:
+        await EMPLOYER_UPDATE_VACANCY(
+            vacancy_id="123",
+            body={"vacancy_id": "999", "name": "X"},
+            confirm=True,
+        )
+    assert excinfo.value.code == "bad_request"
+    assert "vacancy_id" in excinfo.value.description
+    assert mock_hh.requests == []

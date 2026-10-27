@@ -14,14 +14,15 @@ files. The same set applies to stdio and Docker/HTTP deployments.
 | `HH_UA_EMAIL` | placeholder | Contact email embedded in the User-Agent header – an hh.ru requirement for API clients |
 | `HH_RATE_LIMIT` | `25` | Requests per minute (token bucket, process-wide) |
 | `HH_TOKEN_STORE` | platform dir | SQLite path for OAuth token pairs; the Docker image uses `/data/tokens.sqlite3` on a volume |
-| `MCP_API_KEYS` | – | Comma-separated API keys guarding the HTTP endpoint (`Authorization: Bearer <key>`); each key gets an isolated OAuth profile |
+| `MCP_API_KEYS` | – | Comma-separated API keys guarding the HTTP endpoint (`Authorization: Bearer <key>`); each key gets an isolated OAuth profile. Keys are **case-sensitive** |
 
 ## Toolset selection
 
-Default toolsets (62 tools including the always-on `auth`): `dictionaries`,
-`suggests`, `vacancies`, `negotiations`, `chats`, `resumes`.
+Default toolsets (62 tools): `dictionaries`, `suggests`, `vacancies`,
+`negotiations`, `chats`, `resumes` – plus the always-on `auth`.
 
-Opt-in toolsets: `employer_vacancies`, `employer_negotiations`,
+`HH_TOOLSETS` fully replaces the default list (`auth` is still always
+included). Opt-in toolsets: `employer_vacancies`, `employer_negotiations`,
 `employer_resumes`, `employer_managers`, `employer_misc`, `extended`
 (undocumented API). Example:
 

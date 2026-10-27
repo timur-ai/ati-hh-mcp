@@ -20,11 +20,28 @@ from ati_hh_mcp import request_context
 from ati_hh_mcp import server as server_module
 from ati_hh_mcp.hh.errors import HHError
 from ati_hh_mcp.hh.token_store import TokenStore, profile_key_from_api_key
-from ati_hh_mcp.server import PUBLIC_PATHS, RequestAuthMiddleware, build_http_server
+from ati_hh_mcp.server import (
+    PUBLIC_PATHS,
+    RequestAuthMiddleware,
+    build_http_server,
+    build_server,
+)
 
 from ..conftest import make_config
 
 Message = dict[str, Any]
+
+
+def _header_bytes(value: str) -> bytes:
+    """Байты значения заголовка: latin-1, при не-ASCII – utf-8.
+
+    ASGI-сервер передаёт байты как есть; враждебный клиент может протолкнуть
+    не-ASCII значение – middleware обязан его отклонить, а не упасть.
+    """
+    try:
+        return value.encode("latin-1")
+    except UnicodeEncodeError:
+        return value.encode("utf-8")
 
 
 def _scope(path: str, headers: dict[str, str]) -> dict[str, Any]:
@@ -36,7 +53,7 @@ def _scope(path: str, headers: dict[str, str]) -> dict[str, Any]:
         "method": "GET",
         "path": path,
         "headers": [
-            (name.encode("latin-1"), value.encode("latin-1"))
+            (name.encode("latin-1"), _header_bytes(value))
             for name, value in headers.items()
         ],
         "query_string": b"",
@@ -157,6 +174,78 @@ async def test_non_http_scope_passes_through() -> None:
     assert captured["type"] == "lifespan"
 
 
+async def test_non_ascii_bearer_rejected_not_crashed() -> None:
+    """Не-ASCII Bearer (кириллица) – отказ 401, не исключение 500."""
+    captured: dict[str, Any] = {}
+    middleware = RequestAuthMiddleware(_inner_app(captured), api_keys=("key-a",))
+    sent = await _invoke(middleware, "/mcp", {"Authorization": "Bearer ключ-ключ"})
+    assert sent[0]["status"] == 401
+    assert json.loads(sent[1]["body"])["error"]["code"] == "unauthorized"
+    assert captured == {}
+
+
+async def _invoke_ws(
+    middleware: RequestAuthMiddleware, api_keys_present: bool  # noqa: ARG001
+) -> list[Message]:
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "websocket.connect"}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: dict[str, Any] = {"type": "websocket", "path": "/mcp", "headers": []}
+    await middleware(scope, receive, send)
+    return sent
+
+
+async def test_websocket_closed_when_api_keys_configured() -> None:
+    """WebSocket-рукопожатие не обходит гейт: close с кодом 1008."""
+    inner_called: list[str] = []
+
+    async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        inner_called.append(scope["type"])
+
+    middleware = RequestAuthMiddleware(app, api_keys=("key-a",))
+    sent = await _invoke_ws(middleware, True)
+    types = [message["type"] for message in sent]
+    assert types == ["websocket.accept", "websocket.close"]
+    assert sent[-1]["code"] == 1008
+    assert inner_called == []  # приложение не вызывалось.
+
+
+async def test_websocket_allowed_in_open_mode() -> None:
+    """Без API-ключей (личный запуск) WebSocket проходит к приложению."""
+    inner_called: list[str] = []
+
+    async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        inner_called.append(scope["type"])
+
+    middleware = RequestAuthMiddleware(app, api_keys=())
+    await _invoke_ws(middleware, False)
+    assert inner_called == ["websocket"]
+
+
+async def test_unauthorized_event_logged_without_secrets(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Отказ доступа попадает в журнал безопасности; токенов в записи нет."""
+    captured: dict[str, Any] = {}
+    middleware = RequestAuthMiddleware(_inner_app(captured), api_keys=("key-a",))
+    with caplog.at_level("INFO", logger="ati-hh-mcp.security"):
+        sent = await _invoke(
+            middleware, "/mcp", {"Authorization": "Bearer секретный-ключ"}
+        )
+    assert sent[0]["status"] == 401
+    record = caplog.records[-1]
+    assert record.name == "ati-hh-mcp.security"
+    assert "unauthorized" in record.getMessage()
+    assert "/mcp" in record.getMessage()
+    # Сам предъявленный ключ в журнал не попадает.
+    assert "секретный-ключ" not in record.getMessage()
+
+
 # --- маршруты /health и /oauth/callback --------------------------------------
 
 
@@ -266,3 +355,78 @@ async def test_oauth_callback_exchange_failure_502(
     assert response.status_code == 502
     assert "отклонил" in response.text
 
+
+
+async def test_oauth_callback_network_error_502(
+    http_app: httpx.ASGITransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сетевой сбой обмена (TransportError) – 502 с русским сообщением."""
+
+    class NetworkOAuth:
+        def __init__(self, config: Any, store: TokenStore) -> None: ...
+
+        async def exchange_code(self, code: str, profile: str) -> Any:
+            raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(server_module, "HHOAuth", NetworkOAuth)
+
+    store = TokenStore(_store_path())
+    try:
+        state = store.sign_state("default")
+    finally:
+        store.close()
+
+    async with httpx.AsyncClient(transport=http_app, base_url="http://test") as client:
+        response = await client.get(
+            "/oauth/callback", params={"code": "abc", "state": state}
+        )
+    assert response.status_code == 502
+    assert "сетевая ошибка" in response.text
+
+
+async def test_oauth_callback_success_logged(
+    http_app: httpx.ASGITransport,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Успешный обмен попадает в журнал безопасности (профиль, без кода)."""
+
+    class OkOAuth:
+        def __init__(self, config: Any, store: TokenStore) -> None:
+            self._store = store
+
+        async def exchange_code(self, code: str, profile: str) -> Any:
+            return self._store.save_tokens(profile, "AT", None)
+
+    monkeypatch.setattr(server_module, "HHOAuth", OkOAuth)
+
+    store = TokenStore(_store_path())
+    try:
+        state = store.sign_state("default")
+    finally:
+        store.close()
+
+    with caplog.at_level("INFO", logger="ati-hh-mcp.security"):
+        async with httpx.AsyncClient(transport=http_app, base_url="http://test") as client:
+            response = await client.get(
+                "/oauth/callback", params={"code": "SECRET-CODE", "state": state}
+            )
+    assert response.status_code == 200
+    message = caplog.records[-1].getMessage()
+    assert "oauth_exchange ok" in message
+    assert "default" in message
+    # Код авторизации в журнал не попадает.
+    assert "SECRET-CODE" not in message
+
+
+async def test_auth_toolset_always_included() -> None:
+    """HH_TOOLSETS полностью заменяет список, но auth подключается всегда."""
+    from fastmcp import Client
+
+    server = build_server(make_config(toolsets=("vacancies",)))
+    async with Client(server) as client:
+        names = {tool.name for tool in await client.list_tools()}
+    # Инструменты выбранного набора и обязательный auth.
+    assert "search_vacancies" in names
+    assert {"auth_status", "get_me", "auth_get_login_url", "auth_exchange_code"} <= names
+    assert "dict_dictionaries" not in names  # невыбранные наборы не подключаются.

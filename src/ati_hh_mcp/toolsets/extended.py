@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any, Literal
+from urllib.parse import quote
 
 from fastmcp import FastMCP
 
@@ -170,7 +171,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory | None = None) -> None:
             )
         client = factory()
         try:
-            return await client.get(f"/artifacts/{artifact_type}")
+            return await client.get(f"/artifacts/{quote(artifact_type, safe='')}")
         finally:
             await client.aclose()
 
@@ -183,9 +184,10 @@ def register(mcp: FastMCP, client_factory: ClientFactory | None = None) -> None:
         """
         if not confirm:
             raise _confirm_required()
+        encoded = quote(artifact_id, safe="")
         client = factory()
         try:
-            await client.delete(f"/artifacts/{artifact_id}")
+            await client.delete(f"/artifacts/{encoded}")
         finally:
             await client.aclose()
         return {"deleted": True, "artifact_id": artifact_id}

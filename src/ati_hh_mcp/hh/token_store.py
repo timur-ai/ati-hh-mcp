@@ -3,7 +3,16 @@
 Профиль – sha256-хэш API-ключа MCP (сырой ключ в базе не хранится) или
 литерал ``default`` для персонального запуска без API-ключей. Кроме пар
 токенов база хранит ``server_secret`` для подписи OAuth-state (генерируется
-``secrets.token_urlsafe`` при первом создании и живёт в таблице meta).
+``secrets.token_urlsafe`` при первом создании и живёт в таблице meta);
+state подписывается с меткой времени и живёт не дольше ``STATE_TTL_SECONDS``.
+
+Ограничение модели: sqlite3 синхронный, а сервер асинхронный. Допустимо
+при одном worker-процессе uvicorn (короткие локальные транзакции, режим
+WAL); файл базы располагайте на локальной ФС – на сетевой файловой системе
+перенесите вызовы в ``asyncio.to_thread``.
+
+Файл базы (и ``-wal``/``-shm``, если уже созданы) получает права 0o600:
+внутри – токены hh.ru.
 """
 
 from __future__ import annotations
@@ -11,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import os
 import secrets
 import sqlite3
 import time
@@ -21,6 +31,9 @@ from pathlib import Path
 DEFAULT_PROFILE = "default"
 
 _META_SECRET_KEY = "server_secret"
+
+#: Срок жизни подписи OAuth-state (24 часа).
+STATE_TTL_SECONDS = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -52,6 +65,7 @@ class TokenStore:
         self._conn.row_factory = sqlite3.Row
         # Для :memory: прагма молча останется в режиме memory – это нормально.
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._restrict_permissions()
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS profiles ("
             "profile_key TEXT PRIMARY KEY, "
@@ -72,6 +86,20 @@ class TokenStore:
     def path(self) -> str:
         """Путь к файлу базы (для диагностики)."""
         return self._path
+
+    def _restrict_permissions(self) -> None:
+        """Права 0o600 на файл базы и wal/shm-файлы, если они есть.
+
+        Внутри базы – токены hh.ru; доступ только владельцу. Для
+        ``:memory:`` и недоступного пути шаг молча пропускается
+        (диагностика прав не входит в контракт хранилища).
+        """
+        for suffix in ("", "-wal", "-shm"):
+            candidate = self._path + suffix
+            try:
+                os.chmod(candidate, 0o600)
+            except OSError:
+                continue  # файла нет или :memory:.
 
     # ------------------------------------------------------------------
     # Профили токенов
@@ -147,21 +175,37 @@ class TokenStore:
         return secret
 
     def sign_state(self, profile_key: str) -> str:
-        """Подписывает профиль для OAuth-state: ``"<profile>.<sig>"``."""
+        """Подписывает профиль для OAuth-state: ``"<profile>|<ts>.<sig>"``.
+
+        Метка времени ограничивает срок жизни state значением
+        ``STATE_TTL_SECONDS`` (24 часа): повторное использование старой
+        ссылки входа после истечения срока отклоняется ``verify_state``.
+        """
+        payload = f"{profile_key}|{int(time.time())}"
         secret = self.ensure_secret().encode("utf-8")
-        signature = hmac.new(secret, profile_key.encode("utf-8"), "sha256").hexdigest()
-        return f"{profile_key}.{signature}"
+        signature = hmac.new(secret, payload.encode("utf-8"), "sha256").hexdigest()
+        return f"{payload}.{signature}"
 
     def verify_state(self, state: str) -> str | None:
-        """Проверяет подпись state; возвращает профиль или None при подделке."""
-        profile_key, separator, signature = state.rpartition(".")
-        if not separator or not profile_key:
+        """Проверяет подпись и срок жизни state; профиль или None.
+
+        None возвращается при подделке подписи, некорректном формате и
+        возрасте подписи свыше ``STATE_TTL_SECONDS``.
+        """
+        payload, separator, signature = state.rpartition(".")
+        if not separator or not payload:
             return None
         secret = self.ensure_secret().encode("utf-8")
-        expected = hmac.new(secret, profile_key.encode("utf-8"), "sha256").hexdigest()
-        if hmac.compare_digest(expected, signature):
-            return profile_key
-        return None
+        expected = hmac.new(secret, payload.encode("utf-8"), "sha256").hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            return None
+        profile_key, pipe, ts_raw = payload.rpartition("|")
+        if not pipe or not profile_key or not ts_raw.isdigit():
+            return None
+        age = time.time() - int(ts_raw)
+        if age < 0 or age > STATE_TTL_SECONDS:
+            return None  # просроченная или «из будущего» подпись.
+        return profile_key
 
     # ------------------------------------------------------------------
     # Закрытие

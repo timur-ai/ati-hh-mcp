@@ -82,3 +82,82 @@ def test_serve_http_runs_http_server(monkeypatch: pytest.MonkeyPatch) -> None:
     assert kwargs["port"] == 8123
     assert kwargs["show_banner"] is False
     assert len(kwargs["middleware"]) == 1  # гейт RequestAuthMiddleware.
+
+
+# --- guard открытого HTTP (team-fix, M-medium) ------------------------------
+
+
+def test_http_open_server_on_non_loopback_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """0.0.0.0 без MCP_API_KEYS – отказ (exit 2), сервер не стартует."""
+    started: list[str] = []
+
+    class _NeverServer:
+        async def run_http_async(self, **kwargs: object) -> None:  # pragma: no cover
+            started.append("must not run")
+
+    monkeypatch.setattr(cli, "build_http_server", lambda _cfg: _NeverServer())
+    monkeypatch.setattr(cli, "_FakeConfig", _FakeConfig, raising=False)
+    monkeypatch.setattr(cli, "Config", _FakeConfig)
+    code = cli.main(["serve", "--transport", "http", "--host", "0.0.0.0"])
+    assert code == 2
+    assert started == []
+    stderr = capsys.readouterr().err
+    assert "MCP_API_KEYS" in stderr
+    assert "127.0.0.1" in stderr
+
+
+def test_http_open_server_on_loopback_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """127.0.0.1 без ключей – личный запуск разрешён."""
+    started: list[dict[str, object]] = []
+
+    class _FakeServer:
+        async def run_http_async(self, **kwargs: object) -> None:
+            started.append(kwargs)
+
+    monkeypatch.setattr(cli, "build_http_server", lambda _cfg: _FakeServer())
+    monkeypatch.setattr(cli, "Config", _FakeConfig)
+    code = cli.main(["serve", "--transport", "http", "--host", "127.0.0.1"])
+    assert code == 0
+    assert len(started) == 1
+
+
+def test_http_server_with_api_keys_on_any_host_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """0.0.0.0 с MCP_API_KEYS – штатный запуск."""
+
+    class _KeyConfig:
+        @staticmethod
+        def from_env() -> object:
+            return make_config(api_keys=("key-a",))
+
+    started: list[dict[str, object]] = []
+
+    class _FakeServer:
+        async def run_http_async(self, **kwargs: object) -> None:
+            started.append(kwargs)
+
+    monkeypatch.setattr(cli, "build_http_server", lambda _cfg: _FakeServer())
+    monkeypatch.setattr(cli, "Config", _KeyConfig)
+    code = cli.main(["serve", "--transport", "http", "--host", "0.0.0.0"])
+    assert code == 0
+    assert len(started) == 1
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("127.0.0.1", True),
+        ("localhost", True),
+        ("LOCALHOST", True),
+        ("::1", True),
+        ("[::1]", True),
+        ("0.0.0.0", False),
+        ("192.168.1.5", False),
+        ("example.com", False),
+    ],
+)
+def test_is_loopback(host: str, expected: bool) -> None:
+    assert cli._is_loopback(host) is expected

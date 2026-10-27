@@ -190,15 +190,3 @@ jobs:
         if: always()
         run: docker rm -f ati-hh-mcp-ci
 
-  # TODO M9: install-from-git – свежее окружение,
-  # `uvx --from git+${repo}@sha ati-hh-mcp --version`, затем MCP initialize
-  # + tools/list тем же путём (проверка quick-start из README).
-  # install-from-git:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0
-  #     - run: |
-  #         SHA=$(git rev-parse HEAD)
-  #         uvx --from "git+https://github.com/<user>/ati-hh-mcp@${SHA}" ati-hh-mcp --version

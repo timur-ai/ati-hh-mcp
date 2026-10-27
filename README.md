@@ -73,8 +73,7 @@ MCP client at it (see [client configuration](#client-configuration)) and set
 ```bash
 git clone https://github.com/timur-ai/ati-hh-mcp
 cd ati-hh-mcp
-# edit MCP_API_KEYS and HH_UA_EMAIL in docker-compose.yml first
-docker compose up --build
+MCP_API_KEYS="$(openssl rand -hex 32)" docker compose up --build
 ```
 
 Clients connect to `http://localhost:8080/mcp` with
@@ -82,6 +81,12 @@ Clients connect to `http://localhost:8080/mcp` with
 `/health` endpoint for the Compose healthcheck, and keeps OAuth tokens in a
 SQLite volume. See the [deployment guide](https://timur-ai.github.io/ati-hh-mcp/deployment/)
 for multi-user setup.
+
+**TLS is mandatory for network exposure**: the server speaks plain HTTP, so
+put a TLS-terminating reverse proxy (Caddy/nginx) in front of it, bind the
+container to `127.0.0.1` and run a single worker process – see the
+[deployment guide](https://timur-ai.github.io/ati-hh-mcp/deployment/) for
+ready-made proxy snippets.
 
 ## Client configuration
 
@@ -171,7 +176,8 @@ Connection to the Docker/HTTP deployment:
 ## Toolsets
 
 62 tools are enabled by default; six employer toolsets and the undocumented
-extended set are opt-in via `HH_TOOLSETS`. The `auth` toolset is always on.
+extended set are opt-in via `HH_TOOLSETS`. `HH_TOOLSETS` fully replaces the
+default list; the `auth` toolset is always included regardless.
 A generated catalog with every tool, its OpenAPI operation and description
 lives in the [tool reference](https://timur-ai.github.io/ati-hh-mcp/tools/).
 
@@ -245,7 +251,7 @@ With `HH_CLIENT_ID`, `HH_CLIENT_SECRET` and `HH_REDIRECT_URI` configured:
 ## Two-level search schema
 
 Heavy search operations (`search_vacancies` with 45 parameters,
-`search_resumes` with 52) would bury an LLM in flat arguments. Such tools use
+`employer_search_resumes` with 52) would bury an LLM in flat arguments. Such tools use
 a two-level schema: frequent filters are top-level tool parameters, the long
 tail lives in a nested `advanced` object:
 
@@ -297,12 +303,12 @@ flowchart LR
 | `HH_CLIENT_ID` | – | OAuth application client id (dev.hh.ru) |
 | `HH_CLIENT_SECRET` | – | OAuth application client secret |
 | `HH_REDIRECT_URI` | – | OAuth redirect URI registered at dev.hh.ru |
-| `HH_TOOLSETS` | default set | Comma-separated toolsets to enable beyond the defaults |
+| `HH_TOOLSETS` | default set | Comma-separated toolsets to enable; fully replaces the default list (`auth` is always included) |
 | `HH_API_BASE` | `https://api.hh.ru` | API base URL (tests and experiments) |
 | `HH_UA_EMAIL` | placeholder | Contact email in the User-Agent (hh.ru requirement) |
 | `HH_RATE_LIMIT` | `25` | Requests per minute (token bucket) |
 | `HH_TOKEN_STORE` | platform dir | SQLite path for OAuth token pairs (Docker: `/data/tokens.sqlite3`) |
-| `MCP_API_KEYS` | – | Comma-separated API keys guarding the HTTP endpoint |
+| `MCP_API_KEYS` | – | Comma-separated API keys guarding the HTTP endpoint (case-sensitive) |
 
 ## Limitations
 
@@ -346,7 +352,7 @@ From the original design decisions, recorded with reasons:
 
 ```bash
 uv sync --dev                # environment
-uv run pytest -q             # 527 tests: unit + contract + MCP client e2e
+uv run pytest -q             # 547 tests (+8 live, opt-in): unit + contract + MCP e2e
 uv run ruff check src tests  # lint
 uv run mypy src              # strict type check
 ```

@@ -205,8 +205,8 @@ async def test_subprocess_extended_toolset_visibility() -> None:
 async def test_subprocess_employer_toolsets_visibility() -> None:
     """employer_* скрыты в дефолтных наборах; HH_TOOLSETS включает выбранные.
 
-    HH_TOOLSETS полностью заменяет дефолтный список: перечисляются только
-    нужные наборы (negotiations/chats показывают выборочное включение).
+    HH_TOOLSETS полностью заменяет дефолтный список, но auth подключается
+    всегда (единственный путь OAuth не должен теряться).
     """
     default_names = await _subprocess_tool_names()
     assert not any(name.startswith("employer_") for name in default_names)
@@ -219,6 +219,8 @@ async def test_subprocess_employer_toolsets_visibility() -> None:
     assert "employer_prolongate_vacancy" in selected_names
     assert "list_negotiations" in selected_names
     assert "list_chats" in selected_names
+    # auth принудительно добавляется даже без упоминания в HH_TOOLSETS.
+    assert {"auth_status", "get_me", "auth_get_login_url"} <= selected_names
     # Выборочное включение: наборы вне HH_TOOLSETS скрыты.
     assert "employer_list_mail_templates" not in selected_names
     assert "dict_dictionaries" not in selected_names

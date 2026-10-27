@@ -27,11 +27,18 @@ DEFAULT_RATE_LIMIT = 25
 DEFAULT_UA_EMAIL = "unknown@example.com"
 
 
-def _split_csv(raw: str | None) -> tuple[str, ...]:
-    """Разбор строки через запятую в кортеж непустых значений."""
+def _split_csv(raw: str | None, *, lowercase: bool = True) -> tuple[str, ...]:
+    """Разбор строки через запятую в кортеж непустых значений.
+
+    ``lowercase`` используется для имён toolsets; API-ключи MCP
+    регистрозависимы и разбираются без изменения регистра.
+    """
     if not raw:
         return ()
-    return tuple(part.strip().lower() for part in raw.split(",") if part.strip())
+    parts = (part.strip() for part in raw.split(","))
+    if lowercase:
+        return tuple(part.lower() for part in parts if part)
+    return tuple(part for part in parts if part)
 
 
 def _clean(raw: str | None) -> str | None:
@@ -87,7 +94,8 @@ class Config:
             client_id=_clean(source.get("HH_CLIENT_ID")),
             client_secret=_clean(source.get("HH_CLIENT_SECRET")),
             redirect_uri=_clean(source.get("HH_REDIRECT_URI")),
-            api_keys=_split_csv(source.get("MCP_API_KEYS")),
+            # API-ключи регистрозависимы: НЕ приводим к нижнему регистру.
+            api_keys=_split_csv(source.get("MCP_API_KEYS"), lowercase=False),
             rate_limit=rate_limit,
         )
 

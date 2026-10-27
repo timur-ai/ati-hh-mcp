@@ -1,8 +1,13 @@
 # Пример многопользовательского развёртывания ati-hh-mcp (этап M7).
 #
-# Запуск: docker compose up --build
+# Запуск:
+#   MCP_API_KEYS="$(openssl rand -hex 32)" docker compose up --build
 # Клиенты подключаются к http://<host>:8080/mcp с заголовком
 # Authorization: Bearer <ключ из MCP_API_KEYS>.
+#
+# При доступе из сети обязателен TLS-прокси перед сервером – см.
+# docs/deployment.md (раздел «TLS обязателен при сетевом доступе»);
+# для локальных экспериментов раскомментируйте вариант ports с 127.0.0.1.
 
 services:
   ati-hh-mcp:
@@ -11,11 +16,12 @@ services:
     restart: unless-stopped
     environment:
       # ОБЯЗАТЕЛЬНО в многопользовательском режиме: список API-ключей
-      # доступа к MCP-серверу через запятую. Каждый ключ получает свой
-      # изолированный OAuth-профиль hh.ru (sha256 ключа). Смените ключ!
-      MCP_API_KEYS: "change-me-strong-api-key"
+      # доступа к MCP-серверу через запятую (регистрозависимы). Каждый
+      # ключ получает свой изолированный OAuth-профиль hh.ru (sha256).
+      # Сгенерировать ключ: openssl rand -hex 32
+      MCP_API_KEYS: "${MCP_API_KEYS:?set MCP_API_KEYS before docker compose up, e.g. MCP_API_KEYS=\"$(openssl rand -hex 32)\"}"
       # Контактный email владельца – требование hh.ru к User-Agent.
-      HH_UA_EMAIL: "owner@example.com"
+      HH_UA_EMAIL: "${HH_UA_EMAIL:-owner@example.com}"
       # OAuth hh.ru (опционально; redirect_uri должен быть зарегистрирован
       # в приложении на https://dev.hh.ru/admin и указывать на этот сервер,
       # например http://<host>:8080/oauth/callback):
@@ -26,6 +32,8 @@ services:
       HH_TOKEN_STORE: "/data/tokens.sqlite3"
     ports:
       - "8080:8080"
+      # Локальный вариант (TLS-прокси на той же машине принимает извне):
+      # - "127.0.0.1:8080:8080"
     volumes:
       - hh-tokens:/data
     healthcheck:

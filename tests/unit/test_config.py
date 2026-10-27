@@ -70,3 +70,17 @@ def test_with_toolsets_override() -> None:
     assert overridden.toolsets == ("vacancies", "extended")
     # Исходная конфигурация не изменилась (иммутабельность).
     assert config.toolsets == DEFAULT_TOOLSETS
+
+
+def test_mcp_api_keys_case_sensitive() -> None:
+    """API-ключи MCP регистрозависимы: регистр сохраняется."""
+    config = Config.from_env(
+        {
+            "HH_TOKEN": "",
+            "MCP_API_KEYS": "Key-One,key-two,ABCdef",
+            "HH_TOOLSETS": "Dictionaries,Extended",
+        }
+    )
+    assert config.api_keys == ("Key-One", "key-two", "ABCdef")
+    # Имена toolsets приводятся к нижнему регистру как раньше.
+    assert config.toolsets == ("dictionaries", "extended")

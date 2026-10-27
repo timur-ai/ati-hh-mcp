@@ -117,7 +117,7 @@ def test_build_authorize_url_contains_signed_state(store: TokenStore) -> None:
     assert query["client_id"] == ["CID"]
     assert query["redirect_uri"] == ["https://example.test/cb"]
     state = query["state"][0]
-    assert state.startswith("default.")
+    assert state.startswith("default|")
     assert store.verify_state(state) == "default"
 
 

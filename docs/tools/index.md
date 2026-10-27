@@ -20,5 +20,5 @@ Every tool maps 1:1 to an operation of the public hh.ru OpenAPI specification (e
 | [`employer_misc`](employer_misc.md) | 25 | off | Employer directories, employers info, calls, webhooks. |
 | [`extended`](extended.md) | 4 | off | UNDOCUMENTED hh.ru API operations, disabled by default: apply to vacancy, own resumes, artifacts. |
 
-**Total: 141 tools** in 13 toolsets (12 switchable via `HH_TOOLSETS` plus the always-on `auth`).
+**Total: 141 tools** in 13 toolsets (12 switchable via `HH_TOOLSETS`, which fully replaces the default list; the `auth` toolset is always on).
 

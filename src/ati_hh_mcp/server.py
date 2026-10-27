@@ -1,9 +1,12 @@
 """Сборка MCP-сервера из наборов инструментов.
 
-Наборы подключаются по ``config.toolsets`` через ``TOOLSET_MODULES``.
-Набор ``auth`` получает единый на процесс ``TokenStore`` (SQLite по пути
-``auth_tools.default_store_path()``); остальные наборы подключаются
-стандартным контрактом ``register(mcp, client_factory)``.
+Наборы подключаются по ``config.toolsets`` через ``TOOLSET_MODULES``;
+набор ``auth`` подключается всегда, даже если не перечислен в
+``HH_TOOLSETS`` (OAuth-вход – единственный путь обновления токенов и не
+должен теряться при замене списка). Набор ``auth`` получает единый на
+процесс ``TokenStore`` (SQLite по пути ``auth_tools.default_store_path()``);
+остальные наборы подключаются стандартным контрактом
+``register(mcp, client_factory)``.
 
 HTTP-транспорт (этап M7): ``build_http_server`` добавляет маршруты
 ``/health`` (проверка живости, без авторизации) и ``/oauth/callback``
@@ -17,10 +20,13 @@ from __future__ import annotations
 import hmac
 import importlib
 import json
+import logging
+import sys
 from dataclasses import replace
 from types import ModuleType
 from typing import Protocol, cast
 
+import httpx
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
@@ -33,6 +39,18 @@ from .hh.client import HHClient
 from .hh.errors import HHError
 from .hh.token_store import DEFAULT_PROFILE, TokenStore, profile_key_from_api_key
 from .toolsets import auth_tools
+
+# Журнал безопасности: отказы доступа и обмены OAuth-кода. Обработчик
+# пишет в stderr (в stdio-режиме stdout обязан содержать только протокол
+# MCP); в записях нет токенов, кодов авторизации и тел запросов.
+security_log = logging.getLogger("ati-hh-mcp.security")
+if not security_log.handlers:
+    _security_handler = logging.StreamHandler(sys.stderr)
+    _security_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+    )
+    security_log.addHandler(_security_handler)
+    security_log.setLevel(logging.INFO)
 
 INSTRUCTIONS = (
     "MCP server for the hh.ru API. Tools are grouped into switchable "
@@ -96,8 +114,20 @@ def shared_token_store() -> TokenStore:
     return _process_store
 
 
+def _effective_toolsets(config: Config) -> tuple[str, ...]:
+    """Список подключаемых наборов: config.toolsets + всегда auth."""
+    if "auth" in config.toolsets:
+        return config.toolsets
+    return ("auth", *config.toolsets)
+
+
 def build_server(config: Config | None = None) -> FastMCP:
-    """Собирает FastMCP-приложение с наборами из config.toolsets."""
+    """Собирает FastMCP-приложение с наборами из config.toolsets.
+
+    Набор ``auth`` принудительно добавляется, даже если не перечислен в
+    ``HH_TOOLSETS``: без него теряется единственный путь OAuth-входа
+    (``auth_get_login_url``/``auth_exchange_code``/``auth_logout``).
+    """
     cfg = config if config is not None else Config.from_env()
     store = shared_token_store()
 
@@ -112,7 +142,7 @@ def build_server(config: Config | None = None) -> FastMCP:
 
     server = FastMCP(name="ati-hh-mcp", version=__version__, instructions=INSTRUCTIONS)
 
-    for name in cfg.toolsets:
+    for name in _effective_toolsets(cfg):
         module = TOOLSET_MODULES.get(name)
         if module is None:
             continue  # набор ещё не реализован (последующие волны)
@@ -133,8 +163,10 @@ class RequestAuthMiddleware:
 
     При заданных API-ключах каждый запрос (кроме ``PUBLIC_PATHS``) обязан
     нести ``Authorization: Bearer <key>``; ключ сверяется со списком
-    через ``hmac.compare_digest``. Неверный или отсутствующий ключ –
-    ``401`` с JSON-ошибкой на русском.
+    через ``hmac.compare_digest`` по байтам utf-8 (не-ASCII значения не
+    вызывают исключений, а дают отказ). Неверный или отсутствующий ключ –
+    ``401`` с JSON-ошибкой на русском; попытка WebSocket-соединения
+    закрывается кодом 1008 (гейт не поддерживает WS-рукопожатие).
 
     Для прошедших проверку (и в открытом режиме без ключей) middleware
     фиксирует контекст запроса: заголовок ``X-HH-Token`` и профиль
@@ -146,6 +178,14 @@ class RequestAuthMiddleware:
         self._api_keys = tuple(api_keys)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "websocket":
+            if self._api_keys:
+                security_log.warning("unauthorized ws handshake path=%s", scope.get("path"))
+                await send({"type": "websocket.accept"})
+                await send({"type": "websocket.close", "code": 1008, "reason": "unauthorized"})
+                return
+            await self.app(scope, receive, send)
+            return
         if scope["type"] != "http" or scope.get("path") in PUBLIC_PATHS:
             await self.app(scope, receive, send)
             return
@@ -156,6 +196,7 @@ class RequestAuthMiddleware:
         }
         api_key = self._validated_api_key(headers.get("authorization", ""))
         if self._api_keys and api_key is None:
+            security_log.warning("unauthorized path=%s", scope.get("path"))
             await _send_unauthorized(send)
             return
 
@@ -171,9 +212,10 @@ class RequestAuthMiddleware:
         scheme, _, value = authorization.partition(" ")
         if scheme.lower() != "bearer" or not value.strip():
             return None
-        presented = value.strip()
+        presented = value.strip().encode("utf-8")
         for known in self._api_keys:
-            if hmac.compare_digest(presented, known):
+            # Сравнение по байтам: не-ASCII Bearer не роняет сервер.
+            if hmac.compare_digest(presented, known.encode("utf-8")):
                 return known
         return None
 
@@ -223,7 +265,7 @@ def build_http_server(config: Config | None = None) -> FastMCP:
 
         Человекочитаемый ответ (страницу открывает браузер человека),
         коды: 200 – успех, 400 – некорректные параметры/state,
-        502 – hh.ru отклонил обмен кода.
+        502 – hh.ru отклонил обмен кода или сеть недоступна.
         """
         code = request.query_params.get("code", "")
         state = request.query_params.get("state", "")
@@ -235,18 +277,30 @@ def build_http_server(config: Config | None = None) -> FastMCP:
             )
         profile = store.verify_state(state)
         if profile is None:
+            security_log.warning("oauth_exchange fail reason=bad_state")
             return PlainTextResponse(
                 "Не удалось проверить параметр state: подпись недействительна "
-                "или устарела. Начните вход заново (auth_get_login_url).",
+                "или срок действия истёк. Начните вход заново (auth_get_login_url).",
                 status_code=400,
             )
         try:
             await HHOAuth(cfg, store).exchange_code(code, profile)
         except HHError as err:
+            security_log.warning("oauth_exchange fail profile=%s code=%s", profile, err.code)
             return PlainTextResponse(
                 f"Не удалось получить токены hh.ru: {err.description}",
                 status_code=502,
             )
+        except httpx.TransportError:
+            security_log.warning(
+                "oauth_exchange fail profile=%s reason=network", profile
+            )
+            return PlainTextResponse(
+                "Не удалось связаться с hh.ru для обмена кода: сетевая ошибка. "
+                "Проверьте соединение сервера с api.hh.ru и повторите вход.",
+                status_code=502,
+            )
+        security_log.info("oauth_exchange ok profile=%s", profile)
         return PlainTextResponse(
             "Готово: токены hh.ru получены и сохранены. Можно вернуться к "
             "MCP-клиенту и вызывать инструменты (например, get_me)."

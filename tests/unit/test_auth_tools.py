@@ -157,7 +157,7 @@ async def test_get_login_url_returns_url_and_instructions(client: Client) -> Non
     query = parse_qs(urlparse(payload["url"]).query)
     assert query["response_type"] == ["code"]
     assert query["client_id"] == ["CID"]
-    assert query["state"][0].startswith("default.")
+    assert query["state"][0].startswith("default|")
     assert "auth_exchange_code" in payload["instructions"]
     assert "hh.ru" in payload["instructions"]
 

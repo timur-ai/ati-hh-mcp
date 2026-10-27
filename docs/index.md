@@ -31,7 +31,8 @@ vacancy search work without a token.
 ## Toolsets
 
 62 tools are enabled by default; six employer toolsets and the undocumented
-extended set are opt-in via `HH_TOOLSETS`; `auth` is always on. The full
+extended set are opt-in via `HH_TOOLSETS`. The variable fully replaces the
+default list; the `auth` toolset is always included regardless. The full
 generated catalog with every tool, operation and description is in the
 [tool reference](tools/index.md).
 

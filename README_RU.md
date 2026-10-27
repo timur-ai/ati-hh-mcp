@@ -65,14 +65,18 @@ MCP-клиент (см. [конфигурацию клиентов](#конфи�
 ```bash
 git clone https://github.com/timur-ai/ati-hh-mcp
 cd ati-hh-mcp
-# сначала замените MCP_API_KEYS и HH_UA_EMAIL в docker-compose.yml
-docker compose up --build
+MCP_API_KEYS="$(openssl rand -hex 32)" docker compose up --build
 ```
 
 Клиенты подключаются к `http://localhost:8080/mcp` с заголовком
 `Authorization: Bearer <ваш-api-ключ>`. Контейнер работает от
 непривилегированного пользователя, отдаёт `/health` для healthcheck Compose и
 хранит OAuth-токены в SQLite на volume. Многопользовательская настройка – в
+[руководстве по развёртыванию](https://timur-ai.github.io/ati-hh-mcp/deployment/).
+
+**При доступе из сети TLS обязателен**: сервер говорит по чистому HTTP –
+поставьте спереди TLS-прокси (Caddy/nginx), привяжите контейнер к
+`127.0.0.1` и держите один worker-процесс; готовые конфигурации прокси – в
 [руководстве по развёртыванию](https://timur-ai.github.io/ati-hh-mcp/deployment/).
 
 ## Конфигурация клиентов
@@ -163,9 +167,10 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
 ## Наборы инструментов
 
 По умолчанию включены 62 инструмента; шесть employer-наборов и
-недокументированный extended включаются переменной `HH_TOOLSETS`. Набор
-`auth` включён всегда. Справочник со всеми инструментами, их операциями
-OpenAPI и описаниями генерируется из реестра:
+недокументированный extended включаются переменной `HH_TOOLSETS`.
+`HH_TOOLSETS` полностью заменяет список по умолчанию; набор `auth`
+подключается всегда, даже если не перечислен. Справочник со всеми
+инструментами, их операциями OpenAPI и описаниями генерируется из реестра:
 [каталог инструментов](https://timur-ai.github.io/ati-hh-mcp/tools/).
 
 | Набор | Инструментов | По умолчанию | Предметная область |
@@ -239,7 +244,7 @@ OpenAPI и описаниями генерируется из реестра:
 ## Двухуровневая схема поиска
 
 Тяжёлые поисковые операции (`search_vacancies` – 45 параметров,
-`search_resumes` – 52) утопили бы LLM в плоских аргументах. Такие инструменты
+`employer_search_resumes` – 52) утопили бы LLM в плоских аргументах. Такие инструменты
 используют двухуровневую схему: частые фильтры – параметры верхнего уровня,
 длинный хвост – вложенный объект `advanced`:
 
@@ -292,12 +297,12 @@ flowchart LR
 | `HH_CLIENT_ID` | – | client id OAuth-приложения (dev.hh.ru) |
 | `HH_CLIENT_SECRET` | – | client secret OAuth-приложения |
 | `HH_REDIRECT_URI` | – | redirect URI, зарегистрированный на dev.hh.ru |
-| `HH_TOOLSETS` | набор по умолчанию | включаемые дополнительно наборы, через запятую |
+| `HH_TOOLSETS` | набор по умолчанию | включаемые наборы, через запятую; полностью заменяет список по умолчанию (`auth` подключается всегда) |
 | `HH_API_BASE` | `https://api.hh.ru` | базовый URL API (тесты и эксперименты) |
 | `HH_UA_EMAIL` | placeholder | контактный email в User-Agent (требование hh.ru) |
 | `HH_RATE_LIMIT` | `25` | запросов в минуту (token bucket) |
 | `HH_TOKEN_STORE` | системный каталог | путь SQLite для OAuth-токенов (Docker: `/data/tokens.sqlite3`) |
-| `MCP_API_KEYS` | – | API-ключи доступа к HTTP-эндпоинту, через запятую |
+| `MCP_API_KEYS` | – | API-ключи доступа к HTTP-эндпоинту, через запятую (регистрозависимы) |
 
 ## Ограничения
 

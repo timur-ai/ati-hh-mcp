@@ -289,3 +289,14 @@ def test_registry_lookup_by_operation() -> None:
         "PUT /common/chats/{chat_id}/write_possibility",
     ):
         assert REGISTRY.get_by_operation(operation_id) is not None
+
+
+async def test_send_chat_message_body_path_clash_rejected(mock_hh: MockHH) -> None:
+    """body с ключом chat_id конфликтует с path-параметром – отказ без запроса."""
+    with pytest.raises(HHError) as excinfo:
+        await chats.SEND_CHAT_MESSAGE(
+            chat_id="5", body={"chat_id": "999", "text": "x"}, confirm=True
+        )
+    assert excinfo.value.code == "bad_request"
+    assert "chat_id" in excinfo.value.description
+    assert mock_hh.requests == []

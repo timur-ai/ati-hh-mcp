@@ -104,7 +104,7 @@ def test_sign_and_verify_state_roundtrip() -> None:
     store = TokenStore()
     try:
         state = store.sign_state("default")
-        assert state.startswith("default.")
+        assert state.startswith("default|")
         assert store.verify_state(state) == "default"
 
         other = store.sign_state("a" * 64)
@@ -176,3 +176,88 @@ def test_context_manager_closes() -> None:
         store.save_tokens("default", "AT", "RT")
     with pytest.raises(sqlite3.ProgrammingError):
         store.get_tokens("default")
+
+
+# --- TTL подписи OAuth-state и права файла (team-fix LOW) ---------------------
+
+
+def test_state_fresh_is_accepted(tmp_path: Path) -> None:
+    store = TokenStore(tmp_path / "ttl.db")
+    try:
+        state = store.sign_state("default")
+        assert store.verify_state(state) == "default"
+    finally:
+        store.close()
+
+
+def test_state_expired_returns_none(tmp_path: Path) -> None:
+    """Подпись старше STATE_TTL_SECONDS отклоняется (вставка старого ts)."""
+    import time as time_module
+
+    from ati_hh_mcp.hh.token_store import STATE_TTL_SECONDS
+
+    store = TokenStore(tmp_path / "ttl-old.db")
+    try:
+        old_payload = f"default|{int(time_module.time()) - STATE_TTL_SECONDS - 10}"
+        secret = store.ensure_secret().encode("utf-8")
+        import hashlib
+        import hmac as hmac_module
+
+        signature = hmac_module.new(
+            secret, old_payload.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        assert store.verify_state(f"{old_payload}.{signature}") is None
+    finally:
+        store.close()
+
+
+def test_state_from_the_future_returns_none(tmp_path: Path) -> None:
+    """Подпись «из будущего» (сдвиг часов) тоже отклоняется."""
+    import hashlib
+    import hmac as hmac_module
+    import time as time_module
+
+    store = TokenStore(tmp_path / "ttl-future.db")
+    try:
+        future_payload = f"default|{int(time_module.time()) + 3600}"
+        secret = store.ensure_secret().encode("utf-8")
+        signature = hmac_module.new(
+            secret, future_payload.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        assert store.verify_state(f"{future_payload}.{signature}") is None
+    finally:
+        store.close()
+
+
+def test_state_payload_without_timestamp_rejected(tmp_path: Path) -> None:
+    """Legacy-формат без метки времени не проходит проверку TTL."""
+    import hashlib
+    import hmac as hmac_module
+
+    store = TokenStore(tmp_path / "ttl-legacy.db")
+    try:
+        secret = store.ensure_secret().encode("utf-8")
+        signature = hmac_module.new(
+            secret, b"default", hashlib.sha256
+        ).hexdigest()
+        assert store.verify_state(f"default.{signature}") is None
+    finally:
+        store.close()
+
+
+def test_database_file_permissions_0600(tmp_path: Path) -> None:
+    """Файл базы (и wal/shm при наличии) доступен только владельцу."""
+    import stat
+
+    db_path = tmp_path / "perm.db"
+    store = TokenStore(db_path)
+    try:
+        store.save_tokens("default", "AT", "RT")
+        store._conn.execute("SELECT 1").fetchone()  # noqa: SLF001 – wal создаётся
+        store._restrict_permissions()
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(str(db_path) + suffix)
+            if candidate.exists():
+                assert stat.S_IMODE(candidate.stat().st_mode) == 0o600, suffix
+    finally:
+        store.close()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -322,3 +323,52 @@ def test_operation_id_format_validated() -> None:
             requires_auth=False,
             is_mutation=False,
         )
+
+
+# --- запрет пересечения ключей dict-body с path-параметрами (team-fix P1) ----
+
+
+class _PathBodyParams(BaseModel):
+    """Модель с path-параметром и dict-телом."""
+
+    chat_id: str | None = None
+    body: dict[str, Any] | None = None
+
+
+async def test_body_key_clashing_with_path_param_rejected(mock_hh: MockHH) -> None:
+    """Ключ body совпадает с path-параметром – HHError без HTTP-запроса."""
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="POST /clash_demo/{chat_id}/messages",
+        name="unit_clash_post",
+        summary="Clash demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_PathBodyParams,
+    )
+    with pytest.raises(HHError) as excinfo:
+        await tool(chat_id="5", body={"chat_id": "999", "text": "x"}, confirm=True)
+    assert excinfo.value.code == "bad_request"
+    assert "chat_id" in excinfo.value.description
+    assert "body" in excinfo.value.description
+    assert mock_hh.requests == []  # HTTP-вызов не выполнялся.
+
+
+async def test_body_without_path_clash_passes(mock_hh: MockHH) -> None:
+    """Обычное тело без пересечения – уходит в POST как раньше."""
+    mock_hh.json_response = {"id": "1"}
+    toolkit.set_client_factory(lambda: _bound_client(mock_hh))
+    tool = toolkit.make_tool(
+        operation_id="POST /noclash_demo/{chat_id}/messages",
+        name="unit_noclash_post",
+        summary="No clash demo",
+        toolset="unit_test",
+        requires_auth=True,
+        is_mutation=True,
+        param_model=_PathBodyParams,
+    )
+    await tool(chat_id="5", body={"text": "x"}, confirm=True)
+    request = mock_hh.requests[-1]
+    assert request.url.path == "/noclash_demo/5/messages"
+    assert json.loads(request.read()) == {"text": "x"}
