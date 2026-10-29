@@ -8,7 +8,8 @@
 - только read-операции, ~10 запросов на прогон, вежливый троттлинг клиента;
 - публичные справочники и подсказки – без токена;
 - ``get_me``/``list_negotiations`` – только при заданном ``HH_LIVE_TOKEN``
-  (иначе пропуск);
+  (иначе пропуск); отклики соискателя закрыты для новых приложений
+  (hh.ru, 15.12.2025) – 403 forbidden превращается в skip;
 - поисковые вакансии/работодатели с датацентрового IP гео-блокируются
   (403): единственный тест-индикатор превращает 403 в ``pytest.skip``,
   чтобы с домашнего IP поиск реально проверялся.
@@ -125,7 +126,19 @@ async def test_live_get_me(live_client: Client) -> None:
 
 @pytest.mark.skipif(not _live_token(), reason="HH_LIVE_TOKEN не задан")
 async def test_live_list_negotiations(live_client: Client) -> None:
-    result = await live_client.call_tool("list_negotiations", {"per_page": 3})
+    """Отклики/приглашения соискателя.
+
+    С 15.12.2025 hh.ru закрыла API соискателей для новых приложений:
+    даже валидный токен получает 403 forbidden на личных эндпоинтах
+    соискателя (negotiations, resumes/mine). Такой ответ – честный skip;
+    проверки остаются строгими, когда доступ есть.
+    """
+    try:
+        result = await live_client.call_tool("list_negotiations", {"per_page": 3})
+    except ToolError as error:
+        if "[forbidden]" in str(error):
+            pytest.skip("applicant API closed for new apps since 2025-12-15")
+        raise
     payload = _payload(result)
     assert isinstance(payload.get("items"), list)
     assert len(payload["items"]) <= 3
